@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-slate-950 text-slate-100 font-sans antialiased overflow-x-hidden;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(30, 41, 59, 0.3) 0, transparent 50%), 
+      radial-gradient(at 50% 0%, rgba(15, 23, 42, 0.4) 0, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(99, 102, 241, 0.1) 0, transparent 40%);
+    background-attachment: fixed;
+  }
+}
+
+/* Custom premium scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-slate-950;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-800 rounded-full hover:bg-slate-700 transition-colors;
+}
+
+/* Custom utility styles */
+.glass-panel {
+  @apply bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 shadow-2xl;
+}
+
+.glass-panel-hover {
+  @apply hover:border-slate-700/80 hover:bg-slate-900/80 transition-all duration-300;
+}
+
+.glow-emerald {
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+}
+
+.glow-blue {
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.25);
+}
+
+.glow-amber {
+  box-shadow: 0 0 15px rgba(245, 158, 11, 0.25);
+}
+
+/* Keyframes for micro-animations */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
