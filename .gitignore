@@ -14,7 +14,7 @@ backend/app/finance_training.db
 backend/app/finance_training.db-journal
 
 # Node / Frontend
-frontend/node_modules/
+node_modules/
 frontend/dist/
 backend/static/
 
