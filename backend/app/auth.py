@@ -78,12 +78,15 @@ def verify_firebase_token(token: str) -> dict:
             print(f"DEBUG: No x509 certificate found for kid={kid}")
             raise credentials_exception
             
-        # 3. Decode and verify payload signature using Google's public certificate
-        # Construct public key using cryptography or pyjwt native loading
-        # PyJWT's jwt.decode handles x509 certificate strings natively!
+        # 3. Parse x509 certificate to extract the public key object (avoids platform key deserialization errors!)
+        from cryptography.x509 import load_pem_x509_certificate
+        cert_obj = load_pem_x509_certificate(x509_cert.encode("utf-8"))
+        public_key = cert_obj.public_key()
+            
+        # 4. Decode and verify payload signature using Google's public key
         payload = jwt.decode(
             token,
-            x509_cert,
+            public_key,
             algorithms=["RS256"],
             audience=FIREBASE_PROJECT_ID,
             issuer=f"https://securetoken.google.com/{FIREBASE_PROJECT_ID}"
