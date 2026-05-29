@@ -12,7 +12,7 @@ from . import models
 # Config for Firebase project ID
 # Replace this with your actual Firebase Project ID!
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "skills-booster-e779e")
-GOOGLE_CERTS_URL = "https://www.googleapis.com/robot/v1/metadata/x509/securetoken-system%40system.gserviceaccount.com"
+GOOGLE_CERTS_URL = "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
