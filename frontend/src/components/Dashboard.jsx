@@ -2,6 +2,31 @@ import React, { useState, useEffect } from "react";
 import { Download, UploadCloud, CheckCircle2, Lock, PlayCircle, ShieldAlert, Award, FileSpreadsheet, RefreshCw, ChevronRight } from "lucide-react";
 import { api } from "../api";
 
+const TASK_SEQUENCE = [
+  "daily_showroom_footfall",
+  "weekly_sales_volume",
+  "showroom_csat_score",
+  "spare_parts_orders",
+  "test_drive_conversion",
+  "monthly_sales_commission",
+  "camry_fleet_lease",
+  "sales_agent_performance",
+  "spare_parts_valuation",
+  "opex_allocation",
+  "loan_eligibility",
+  "revenue_share_audit",
+  "dealership_profitability",
+  "holding_cost_aging",
+  "capital_project_eval",
+  "dynamic_commission",
+  "trade_in_depreciation",
+  "working_capital_aging",
+  "fleet_procurement",
+  "showroom_feasibility",
+  "parts_forecasting",
+  "service_capacity"
+];
+
 export default function Dashboard({ user, onProgressUpdate }) {
   const [task, setTask] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -102,14 +127,16 @@ export default function Dashboard({ user, onProgressUpdate }) {
     );
   }
 
-  // Calculate overall progress percentage
-  // 3 Stages: Beginner (daily_showroom_footfall), Intermediate (monthly_sales_commission), Advanced (dealership_profitability)
+  // Calculate overall progress percentage dynamically based on 22 tasks sequence
   let overallPercent = 0;
   if (user.progress) {
-    if (user.progress.last_completed_task_id === "daily_showroom_footfall") overallPercent = 33;
-    if (user.progress.last_completed_task_id === "monthly_sales_commission") overallPercent = 66;
-    if (user.progress.last_completed_task_id === "dealership_profitability" || user.progress.current_active_task_id === "completed") {
+    if (user.progress.current_active_task_id === "completed") {
       overallPercent = 100;
+    } else {
+      const lastIdx = TASK_SEQUENCE.indexOf(user.progress.last_completed_task_id);
+      if (lastIdx !== -1) {
+        overallPercent = Math.round(((lastIdx + 1) / TASK_SEQUENCE.length) * 100);
+      }
     }
   }
 
@@ -146,6 +173,15 @@ export default function Dashboard({ user, onProgressUpdate }) {
     );
   }
 
+  // Calculate dynamic stage status
+  const isBeginnerCompleted = user.progress?.intermediate_unlocked || user.progress?.advanced_unlocked || user.progress?.current_active_task_id === "completed";
+  
+  const isIntermediateCompleted = user.progress?.advanced_unlocked || user.progress?.current_active_task_id === "completed";
+  const isIntermediateActive = user.progress?.intermediate_unlocked && !isIntermediateCompleted;
+  
+  const isAdvancedCompleted = user.progress?.current_active_task_id === "completed";
+  const isAdvancedActive = user.progress?.advanced_unlocked && !isAdvancedCompleted;
+
   return (
     <div className="space-y-8 animate-slide-up">
       {/* Stages Timeline */}
@@ -159,17 +195,17 @@ export default function Dashboard({ user, onProgressUpdate }) {
           <div className="absolute top-[21px] left-[16%] right-[16%] h-[2px] bg-slate-800" />
           <div 
             className="absolute top-[21px] left-[16%] h-[2px] bg-gradient-to-r from-emerald-500 to-blue-500 transition-all duration-1000" 
-            style={{ width: `${overallPercent === 33 ? "33%" : overallPercent >= 66 ? "68%" : "0%"}` }}
+            style={{ width: `${isIntermediateCompleted ? "68%" : isBeginnerCompleted ? "33%" : "0%"}` }}
           />
 
           {/* Node 1: Beginner */}
           <div className="flex flex-col items-center z-10">
             <div className={`w-11 h-11 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
-              user.progress?.last_completed_task_id 
+              isBeginnerCompleted 
                 ? "bg-emerald-950/60 border-emerald-500 text-emerald-400 glow-emerald" 
                 : "bg-blue-950/60 border-blue-500 text-blue-400 glow-blue animate-pulse"
             }`}>
-              {user.progress?.last_completed_task_id ? <CheckCircle2 className="w-5 h-5" /> : <PlayCircle className="w-5 h-5" />}
+              {isBeginnerCompleted ? <CheckCircle2 className="w-5 h-5" /> : <PlayCircle className="w-5 h-5" />}
             </div>
             <span className="text-[11px] font-bold mt-2 text-slate-200">Stage 1: Beginner</span>
             <span className="text-[9px] text-slate-500 mt-0.5">SUM, AVERAGE, COUNT</span>
@@ -178,15 +214,15 @@ export default function Dashboard({ user, onProgressUpdate }) {
           {/* Node 2: Intermediate */}
           <div className="flex flex-col items-center z-10">
             <div className={`w-11 h-11 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
-              user.progress?.last_completed_task_id === "monthly_sales_commission" || user.progress?.last_completed_task_id === "dealership_profitability"
+              isIntermediateCompleted
                 ? "bg-emerald-950/60 border-emerald-500 text-emerald-400 glow-emerald" 
-                : user.progress?.intermediate_unlocked
+                : isIntermediateActive
                 ? "bg-blue-950/60 border-blue-500 text-blue-400 glow-blue animate-pulse"
                 : "bg-slate-900 border-slate-800 text-slate-600"
             }`}>
-              {user.progress?.last_completed_task_id === "monthly_sales_commission" || user.progress?.last_completed_task_id === "dealership_profitability" 
+              {isIntermediateCompleted 
                 ? <CheckCircle2 className="w-5 h-5" /> 
-                : user.progress?.intermediate_unlocked 
+                : isIntermediateActive 
                 ? <PlayCircle className="w-5 h-5" /> 
                 : <Lock className="w-4 h-4" />}
             </div>
@@ -197,15 +233,15 @@ export default function Dashboard({ user, onProgressUpdate }) {
           {/* Node 3: Advanced */}
           <div className="flex flex-col items-center z-10">
             <div className={`w-11 h-11 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
-              user.progress?.last_completed_task_id === "dealership_profitability"
+              isAdvancedCompleted
                 ? "bg-emerald-950/60 border-emerald-500 text-emerald-400 glow-emerald" 
-                : user.progress?.advanced_unlocked
+                : isAdvancedActive
                 ? "bg-blue-950/60 border-blue-500 text-blue-400 glow-blue animate-pulse"
                 : "bg-slate-900 border-slate-800 text-slate-600"
             }`}>
-              {user.progress?.last_completed_task_id === "dealership_profitability" 
+              {isAdvancedCompleted 
                 ? <CheckCircle2 className="w-5 h-5" /> 
-                : user.progress?.advanced_unlocked 
+                : isAdvancedActive 
                 ? <PlayCircle className="w-5 h-5" /> 
                 : <Lock className="w-4 h-4" />}
             </div>

@@ -15,6 +15,34 @@ from . import models, auth, grader, seed
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+TASK_SEQUENCE = [
+    # Beginner (5 tasks)
+    "daily_showroom_footfall",
+    "weekly_sales_volume",
+    "showroom_csat_score",
+    "spare_parts_orders",
+    "test_drive_conversion",
+    # Intermediate (7 tasks)
+    "monthly_sales_commission",
+    "camry_fleet_lease",
+    "sales_agent_performance",
+    "spare_parts_valuation",
+    "opex_allocation",
+    "loan_eligibility",
+    "revenue_share_audit",
+    # Advanced (10 tasks)
+    "dealership_profitability",
+    "holding_cost_aging",
+    "capital_project_eval",
+    "dynamic_commission",
+    "trade_in_depreciation",
+    "working_capital_aging",
+    "fleet_procurement",
+    "showroom_feasibility",
+    "parts_forecasting",
+    "service_capacity"
+]
+
 app = FastAPI(
     title="Finance Excel Training Platform API",
     description="Backend API for auto-grading Excel financial models and tracking training progress.",
@@ -350,18 +378,23 @@ async def submit_task_solution(
         
         # Unlock next tasks
         next_active_task_id = "completed"
-        if task_id == "daily_showroom_footfall":
-            progress.last_completed_task_id = "daily_showroom_footfall"
-            progress.current_active_task_id = "monthly_sales_commission"
-            progress.intermediate_unlocked = True
-            next_active_task_id = "monthly_sales_commission"
-        elif task_id == "monthly_sales_commission":
-            progress.last_completed_task_id = "monthly_sales_commission"
-            progress.current_active_task_id = "dealership_profitability"
-            progress.advanced_unlocked = True
-            next_active_task_id = "dealership_profitability"
-        elif task_id == "dealership_profitability":
-            progress.last_completed_task_id = "dealership_profitability"
+        progress.last_completed_task_id = task_id
+        
+        if task_id in TASK_SEQUENCE:
+            idx = TASK_SEQUENCE.index(task_id)
+            if idx + 1 < len(TASK_SEQUENCE):
+                next_active_task_id = TASK_SEQUENCE[idx + 1]
+                progress.current_active_task_id = next_active_task_id
+                
+                # Check if we should unlock stage transitions automatically
+                if next_active_task_id == "monthly_sales_commission":
+                    progress.intermediate_unlocked = True
+                elif next_active_task_id == "dealership_profitability":
+                    progress.advanced_unlocked = True
+            else:
+                progress.current_active_task_id = "completed"
+                next_active_task_id = "completed"
+        else:
             progress.current_active_task_id = "completed"
             next_active_task_id = "completed"
             

@@ -8,6 +8,31 @@ import Dashboard from "./components/Dashboard";
 import Leaderboard from "./components/Leaderboard";
 import AdminPanel from "./components/AdminPanel";
 
+const TASK_SEQUENCE = [
+  "daily_showroom_footfall",
+  "weekly_sales_volume",
+  "showroom_csat_score",
+  "spare_parts_orders",
+  "test_drive_conversion",
+  "monthly_sales_commission",
+  "camry_fleet_lease",
+  "sales_agent_performance",
+  "spare_parts_valuation",
+  "opex_allocation",
+  "loan_eligibility",
+  "revenue_share_audit",
+  "dealership_profitability",
+  "holding_cost_aging",
+  "capital_project_eval",
+  "dynamic_commission",
+  "trade_in_depreciation",
+  "working_capital_aging",
+  "fleet_procurement",
+  "showroom_feasibility",
+  "parts_forecasting",
+  "service_capacity"
+];
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -101,6 +126,16 @@ export default function App() {
     } catch (err) {
       console.error("Failed to refresh user progress:", err);
     }
+  };
+
+  const getOverallPercent = () => {
+    if (!user || !user.progress) return "0%";
+    if (user.progress.current_active_task_id === "completed") return "100%";
+    const lastIdx = TASK_SEQUENCE.indexOf(user.progress.last_completed_task_id);
+    if (lastIdx !== -1) {
+      return `${Math.round(((lastIdx + 1) / TASK_SEQUENCE.length) * 100)}%`;
+    }
+    return "0%";
   };
 
   if (loading) {
@@ -221,20 +256,14 @@ export default function App() {
               <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider mb-1.5 text-slate-400">
                 <span>Overall Curriculum Progress</span>
                 <span>
-                  {user.progress.last_completed_task_id === "daily_showroom_footfall" ? "33%" :
-                   user.progress.last_completed_task_id === "monthly_sales_commission" ? "66%" :
-                   user.progress.last_completed_task_id === "dealership_profitability" || user.progress.current_active_task_id === "completed" ? "100%" :
-                   "0%"}
+                  {getOverallPercent()}
                 </span>
               </div>
               <div className="w-full bg-slate-950 border border-slate-850 rounded-full h-2 overflow-hidden">
                 <div 
                   className="bg-gradient-to-r from-blue-500 to-indigo-500 h-full rounded-full transition-all duration-1000 glow-blue"
                   style={{
-                    width: `${user.progress.last_completed_task_id === "daily_showroom_footfall" ? "33%" :
-                            user.progress.last_completed_task_id === "monthly_sales_commission" ? "66%" :
-                            user.progress.last_completed_task_id === "dealership_profitability" || user.progress.current_active_task_id === "completed" ? "100%" :
-                            "0%"}`
+                    width: getOverallPercent()
                   }}
                 />
               </div>
