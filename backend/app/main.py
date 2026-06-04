@@ -589,6 +589,10 @@ async def admin_upload_task(
     db.commit()
     return {"message": f"Task '{task.title}' updated successfully!"}
 
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "service": "finance-excel-training-api"}
+
 # ==============================================================================
 # STATIC FILES SERVING & MOUNTING
 # ==============================================================================
