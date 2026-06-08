@@ -593,6 +593,17 @@ async def admin_upload_task(
 def health_check():
     return {"status": "healthy", "service": "finance-excel-training-api"}
 
+@app.get("/api/db-status")
+def db_status():
+    import os
+    from .database import DATABASE_URL
+    db_type = "postgresql" if DATABASE_URL.startswith("postgresql") or DATABASE_URL.startswith("postgres") else "sqlite"
+    return {
+        "database_type": db_type,
+        "is_postgres": db_type == "postgresql",
+        "url_configured": bool(os.getenv("DATABASE_URL"))
+    }
+
 # ==============================================================================
 # STATIC FILES SERVING & MOUNTING
 # ==============================================================================
