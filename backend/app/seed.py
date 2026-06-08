@@ -1045,60 +1045,7 @@ def generate_blank_template(file_path: str, task_title: str):
 
 def seed_database(db: Session):
     """Seed SQLite database with standard users, default tasks, and validation rules."""
-    # 1. Create default Admin User
-    admin = db.query(models.User).filter(models.User.username == "admin").first()
-    if not admin:
-        admin = models.User(
-            username="admin",
-            full_name="Administrator",
-            email="admin@training.com",
-            password_hash=None,
-            role="admin"
-        )
-        db.add(admin)
-        db.flush()
-        
-    # 2. Seed the 7 Standard Users
-    standard_users = [
-        ("mahmoud", "Mahmoud Ahmed", "mahmoud@training.com"),
-        ("arslan", "Arslan Ishaq", "arslan@training.com"),
-        ("asela", "Asela Lakmal", "asela@training.com"),
-        ("charuka", "Charuka Jayashan", "charuka@training.com"),
-        ("nushan", "Mohammad Nushan", "nushan@training.com"),
-        ("yousef", "Yousef", "yousef@training.com"),
-        ("khurram", "Khurram Khan", "khurram@training.com")
-    ]
-    
-    for username, full_name, email in standard_users:
-        user = db.query(models.User).filter(models.User.username == username).first()
-        if not user:
-            user = models.User(
-                username=username,
-                full_name=full_name,
-                email=email,
-                password_hash=None,
-                role="user"
-            )
-            db.add(user)
-            db.flush()
-            
-            progress = models.UserProgress(
-                user_id=user.id,
-                current_active_task_id="daily_showroom_footfall",
-                beginner_unlocked=True,
-                intermediate_unlocked=False,
-                advanced_unlocked=False
-            )
-            db.add(progress)
-            
-            score = models.Score(
-                user_id=user.id,
-                total_points=0,
-                failed_attempts_count=0
-            )
-            db.add(score)
-            
-    # 3. Create default tasks (5 Beginner, 7 Intermediate, 10 Advanced)
+    # 1. Create default tasks (5 Beginner, 7 Intermediate, 10 Advanced)
     tasks = [
         # --- STAGE 1: BEGINNER (5 Tasks) ---
         {
@@ -1578,6 +1525,59 @@ def seed_database(db: Session):
             )
             db.add(val)
                 
+    # 2. Create default Admin User
+    admin = db.query(models.User).filter(models.User.username == "admin").first()
+    if not admin:
+        admin = models.User(
+            username="admin",
+            full_name="Administrator",
+            email="admin@training.com",
+            password_hash=None,
+            role="admin"
+        )
+        db.add(admin)
+        db.flush()
+        
+    # 3. Seed the 7 Standard Users
+    standard_users = [
+        ("mahmoud", "Mahmoud Ahmed", "mahmoud@training.com"),
+        ("arslan", "Arslan Ishaq", "arslan@training.com"),
+        ("asela", "Asela Lakmal", "asela@training.com"),
+        ("charuka", "Charuka Jayashan", "charuka@training.com"),
+        ("nushan", "Mohammad Nushan", "nushan@training.com"),
+        ("yousef", "Yousef", "yousef@training.com"),
+        ("khurram", "Khurram Khan", "khurram@training.com")
+    ]
+    
+    for username, full_name, email in standard_users:
+        user = db.query(models.User).filter(models.User.username == username).first()
+        if not user:
+            user = models.User(
+                username=username,
+                full_name=full_name,
+                email=email,
+                password_hash=None,
+                role="user"
+            )
+            db.add(user)
+            db.flush()
+            
+            progress = models.UserProgress(
+                user_id=user.id,
+                current_active_task_id="daily_showroom_footfall",
+                beginner_unlocked=True,
+                intermediate_unlocked=False,
+                advanced_unlocked=False
+            )
+            db.add(progress)
+            
+            score = models.Score(
+                user_id=user.id,
+                total_points=0,
+                failed_attempts_count=0
+            )
+            db.add(score)
+            
     db.commit()
 
 def generate_excel_templates():
