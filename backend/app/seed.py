@@ -24,11 +24,13 @@ def calculate_xirr(values: list, dates: list) -> float:
 
 def create_styled_sheet(wb, title, headers, data, active_task_name):
     """Utility to create a beautifully styled Excel sheet with our design aesthetics."""
-    if title in ("SalesLog", "AgingAndLease", "Rentals", "Inventory"):
-        ws = wb.create_sheet(title)
-    else:
+    if title in wb.sheetnames:
+        ws = wb[title]
+    elif len(wb.sheetnames) == 1 and wb.sheetnames[0] == "Sheet":
         ws = wb.active
         ws.title = title
+    else:
+        ws = wb.create_sheet(title)
         
     ws.sheet_view.showGridLines = True
     
@@ -744,7 +746,7 @@ def generate_revenue_share_audit(file_path: str):
     ]
     create_styled_sheet(wb, "TierMatrix", catalog_headers, catalog_data, "Revenue Tier Share Matrix")
     
-    sales_headers = ["Partner ID", "Gross Revenue (AED)", "Tier Level", "Base Payout (AED)", "Direct Profit", "Bonus Payout (AED)", "Total Allocation (AED)", "Region"]
+    sales_headers = ["Partner ID", "Gross Revenue (AED)", "Tier Level", "Payout Rate (%)", "Direct Profit", "Bonus Payout (AED)", "Total Allocation (AED)", "Region"]
     sales_data = [
         [701, 850000, "Gold", "", "", "", "", "Dubai"],
         [702, 450000, "Silver", "", "", "", "", "Abu Dhabi"],
@@ -1255,9 +1257,9 @@ def seed_database(db: Session):
             ),
             "download_template_name": "sales_agent_performance.xlsx",
             "validations": [
-                {"cell_reference": "H6", "expected_value": "65500", "required_function": "SUMIFS", "is_financial": True, "is_date": False, "correct_formula_hint": "=SUMIFS(D5:D10, B5:B10, \"Dubai\")"},
-                {"cell_reference": "H7", "expected_value": "17000", "required_function": "AVERAGEIFS", "is_financial": True, "is_date": False, "correct_formula_hint": "=AVERAGEIFS(D5:D10, A5:A10, \"Mahmoud\", B5:B10, \"Dubai\")"},
-                {"cell_reference": "H8", "expected_value": "3", "required_function": "COUNTIFS", "is_financial": False, "is_date": False, "correct_formula_hint": "=COUNTIFS(B5:B10, \"Dubai\", D5:D10, \">5000\")"}
+                {"cell_reference": "SalesLog!H6", "expected_value": "65500", "required_function": "SUMIFS", "is_financial": True, "is_date": False, "correct_formula_hint": "=SUMIFS(D5:D10, B5:B10, \"Dubai\")"},
+                {"cell_reference": "SalesLog!H7", "expected_value": "17000", "required_function": "AVERAGEIFS", "is_financial": True, "is_date": False, "correct_formula_hint": "=AVERAGEIFS(D5:D10, A5:A10, \"Mahmoud\", B5:B10, \"Dubai\")"},
+                {"cell_reference": "SalesLog!H8", "expected_value": "3", "required_function": "COUNTIFS", "is_financial": False, "is_date": False, "correct_formula_hint": "=COUNTIFS(B5:B10, \"Dubai\", D5:D10, \">5000\")"}
             ]
         },
         {
@@ -1276,7 +1278,7 @@ def seed_database(db: Session):
             "validations": [
                 {"cell_reference": "Inventory!C5", "expected_value": "30", "required_function": "VLOOKUP", "is_financial": True, "is_date": False, "correct_formula_hint": "=VLOOKUP(A5, Catalog!$A$5:$B$7, 2, FALSE)"},
                 {"cell_reference": "Inventory!E5", "expected_value": "39", "required_function": "IF", "is_financial": True, "is_date": False, "correct_formula_hint": "=IF(D5=\"A\", C5*1.30, C5*1.15)"},
-                {"cell_reference": "Inventory!J6", "expected_value": "17730", "required_function": "SUMIFS", "is_financial": True, "is_date": False, "correct_formula_hint": "=SUMIFS(F5:F9, G5:G9, \"Dubai\")"}
+                {"cell_reference": "Inventory!J6", "expected_value": "17160", "required_function": "SUMIFS", "is_financial": True, "is_date": False, "correct_formula_hint": "=SUMIFS(F5:F9, G5:G9, \"Dubai\")"}
             ]
         },
         {
@@ -1295,7 +1297,7 @@ def seed_database(db: Session):
             "validations": [
                 {"cell_reference": "AllocationLog!D5", "expected_value": "2500", "required_function": "VLOOKUP", "is_financial": True, "is_date": False, "correct_formula_hint": "=VLOOKUP(B5, Sizing!$A$5:$B$7, 2, FALSE)"},
                 {"cell_reference": "AllocationLog!E5", "expected_value": "500", "required_function": "IF", "is_financial": True, "is_date": False, "correct_formula_hint": "=IF(C5>20, 500, 100)"},
-                {"cell_reference": "AllocationLog!I6", "expected_value": "9000", "required_function": "SUMIFS", "is_financial": True, "is_date": False, "correct_formula_hint": "=SUMIFS(F5:F9, A5:A9, \"*\")"}
+                {"cell_reference": "AllocationLog!I6", "expected_value": "9200", "required_function": "SUMIFS", "is_financial": True, "is_date": False, "correct_formula_hint": "=SUMIFS(F5:F9, A5:A9, \"*\")"}
             ]
         },
         {
@@ -1333,7 +1335,7 @@ def seed_database(db: Session):
             "validations": [
                 {"cell_reference": "ShareAudit!D5", "expected_value": "0.12", "required_function": "VLOOKUP", "is_financial": False, "is_date": False, "correct_formula_hint": "=VLOOKUP(C5, TierMatrix!$A$5:$B$7, 2, FALSE)"},
                 {"cell_reference": "ShareAudit!F5", "expected_value": "10000", "required_function": "IF", "is_financial": True, "is_date": False, "correct_formula_hint": "=IF(B5>500000, 10000, 0)"},
-                {"cell_reference": "ShareAudit!K6", "expected_value": "158000", "required_function": "SUMIFS", "is_financial": True, "is_date": False, "correct_formula_hint": "=SUMIFS(E5:E9, H5:H9, \"Dubai\")"}
+                {"cell_reference": "ShareAudit!K6", "expected_value": "158600", "required_function": "SUMIFS", "is_financial": True, "is_date": False, "correct_formula_hint": "=SUMIFS(E5:E9, H5:H9, \"Dubai\")"}
             ]
         },
         
