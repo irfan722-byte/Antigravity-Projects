@@ -170,6 +170,48 @@ def login(firebase_token: str = Form(...), db: Session = Depends(get_db)):
                 db.commit()
                 db.refresh(user)
                 
+    if not user and email:
+        # Auto-create user if they are successfully authenticated via Firebase
+        # but missing in the SQL database (e.g. after database migration or reset)
+        email_clean = email.strip().lower()
+        username = email_clean.split("@")[0]
+        # Handle username clashes
+        import time
+        existing = db.query(models.User).filter(models.User.username == username).first()
+        if existing:
+            username = f"{username}_{int(time.time())}"
+            
+        full_name = payload.get("name", username.capitalize())
+        
+        user = models.User(
+            username=username,
+            full_name=full_name,
+            email=email_clean,
+            firebase_uid=firebase_uid,
+            role="user"
+        )
+        db.add(user)
+        db.flush()
+        
+        # Initialize Progress & Scores
+        progress = models.UserProgress(
+            user_id=user.id,
+            current_active_task_id="daily_showroom_footfall",
+            beginner_unlocked=True,
+            intermediate_unlocked=False,
+            advanced_unlocked=False
+        )
+        db.add(progress)
+        
+        score = models.Score(
+            user_id=user.id,
+            total_points=0,
+            failed_attempts_count=0
+        )
+        db.add(score)
+        db.commit()
+        db.refresh(user)
+        
     if not user:
         raise HTTPException(
             status_code=403,
