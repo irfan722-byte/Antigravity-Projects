@@ -319,10 +319,16 @@ def download_task_template(task_id: str, db: Session = Depends(get_db)):
         if not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail="Excel template file was not found on local disk")
             
+    headers = {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
     return FileResponse(
         path=file_path,
         filename=task.download_template_name,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers
     )
 
 @app.post("/api/tasks/{task_id}/submit")
