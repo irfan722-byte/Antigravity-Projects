@@ -440,10 +440,10 @@ async def submit_task_solution(
                 elif next_active_task_id == "dealership_profitability":
                     progress.advanced_unlocked = True
             else:
-                progress.current_active_task_id = "completed"
+                progress.current_active_task_id = None
                 next_active_task_id = "completed"
         else:
-            progress.current_active_task_id = "completed"
+            progress.current_active_task_id = None
             next_active_task_id = "completed"
             
         db.commit()
