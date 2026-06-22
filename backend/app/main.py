@@ -156,6 +156,22 @@ def login(firebase_token: str = Form(...), db: Session = Depends(get_db)):
         user = db.query(models.User).filter(models.User.email == email.strip().lower()).first()
         if user:
             user.firebase_uid = firebase_uid
+            if not user.progress:
+                progress = models.UserProgress(
+                    user_id=user.id,
+                    current_active_task_id="daily_showroom_footfall",
+                    beginner_unlocked=True,
+                    intermediate_unlocked=False,
+                    advanced_unlocked=False
+                )
+                db.add(progress)
+            if not user.score:
+                score = models.Score(
+                    user_id=user.id,
+                    total_points=0,
+                    failed_attempts_count=0
+                )
+                db.add(score)
             db.commit()
             db.refresh(user)
             
@@ -236,12 +252,36 @@ def login(firebase_token: str = Form(...), db: Session = Depends(get_db)):
     }
 
 @app.get("/api/users/me")
-def get_me(current_user: models.User = Depends(auth.get_current_user)):
+def get_me(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
     """Fetches user details and current active progress state."""
     progress_data = None
     points = 0
     
     if current_user.role == "user":
+        needs_commit = False
+        if not current_user.progress:
+            progress = models.UserProgress(
+                user_id=current_user.id,
+                current_active_task_id="daily_showroom_footfall",
+                beginner_unlocked=True,
+                intermediate_unlocked=False,
+                advanced_unlocked=False
+            )
+            db.add(progress)
+            db.flush()
+            needs_commit = True
+        if not current_user.score:
+            score = models.Score(
+                user_id=current_user.id,
+                total_points=0,
+                failed_attempts_count=0
+            )
+            db.add(score)
+            needs_commit = True
+        if needs_commit:
+            db.commit()
+            db.refresh(current_user)
+            
         if current_user.progress:
             progress_data = {
                 "last_completed_task_id": current_user.progress.last_completed_task_id,

@@ -173,6 +173,20 @@ export default function Dashboard({ user, onProgressUpdate }) {
     );
   }
 
+  if (!task) {
+    return (
+      <div className="glass-panel p-6 rounded-3xl border-red-950 bg-red-950/20 text-red-200 flex items-start gap-4">
+        <ShieldAlert className="w-6 h-6 text-red-400 shrink-0 mt-0.5" />
+        <div>
+          <h3 className="font-bold text-red-400">Workspace Unavailable</h3>
+          <p className="text-xs mt-1 text-red-300/80 leading-relaxed">
+            Failed to load active task details from the server. Please check your network connection and try refreshing the page.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // Calculate dynamic stage status
   const isBeginnerCompleted = user.progress?.intermediate_unlocked || user.progress?.advanced_unlocked || user.progress?.current_active_task_id === "completed";
   
