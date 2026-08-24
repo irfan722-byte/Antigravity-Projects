@@ -37,7 +37,37 @@ margin runs out and the account is wiped in a single move.
 
 | File | Purpose |
 |------|---------|
-| `GridRecoveryEA.mq4` | The Expert Advisor source. |
+| `GridRecoveryEA.mq4` | Baseline grid + optional martingale (closest to the video). |
+| `GridRecoverySafeEA.mq4` | **Flat-lot, hard-stop "safe" variant** — no martingale, mandatory per-trade SL and basket money SL, so worst-case loss is bounded and linear. |
+| `PendingLadderEA.mq4` | Places an actual ladder of **buy-stop + buy-limit pending orders** around price, exactly like the phone's order list in the clip. |
+
+### `GridRecoverySafeEA.mq4` — the safe variant
+
+Same grid mechanic, but the two things that blow accounts up are removed:
+
+- **No martingale** — every trade is the same `FixedLots`.
+- **Mandatory hard stops** — the EA refuses to start unless both `StopLossPoints`
+  (per-trade SL) and `BasketSLMoney` (whole-basket loss cut in $) are set > 0.
+
+Worst case is therefore bounded to roughly `BasketSLMoney`, or per-trade
+`StopLossPoints × MaxTrades`, whichever triggers first — instead of the
+open-ended margin-call risk of the martingale version. A bounded loss is still
+a loss, so it's still demo-first.
+
+### `PendingLadderEA.mq4` — the pending-order ladder
+
+While flat, it seeds `LevelsAbove` **buy-stop** orders above price and
+`LevelsBelow` **buy-limit** orders below price, spaced by `StepPoints` — the
+"US30, buy stop / buy limit" rows you saw on the phone. As price moves, pendings
+fill into one buy basket that's closed as a whole at `BasketTPMoney`, then the
+ladder is rebuilt (`RebuildAfterClose`). Lots are **flat** by default
+(`LotMultiplier = 1.0`); raising it scales the outer levels martingale-style like
+the original — which brings the blow-up risk back, so keep it at 1.0 unless you're
+deliberately studying that.
+
+Key extras: `PerOrderSLPoints` (optional stop on each filled trade),
+`PendingExpiryMin` (auto-expire unfilled pendings), `BasketSLMoney` (money loss
+cut for the filled basket).
 
 ## How to build / run it
 
