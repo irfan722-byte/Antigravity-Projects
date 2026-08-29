@@ -36,28 +36,51 @@ This version is built to be genuinely non-repainting:
   rejection bar, not intrabar. That one-bar confirmation is the price of it
   being real.
 
-### Signal logic
+### Signal logic (noise-controlled)
 
-- **Sell dot** — bar's high pierces the inner upper band but it closes back
-  below the band and closes down (upper-band rejection).
-- **Buy dot** — bar's low pierces the inner lower band but it closes back
-  above the band and closes up (lower-band rejection).
+Like the video, dots are meant to be **rare** — one per major swing,
+alternating red-top / green-bottom. Three filters make that happen:
+
+1. **Outer-band trigger** — a signal is only considered when price pierces
+   the *outer* band (an extreme), not the inner band.
+2. **Alternation** — after a sell, the next dot must be a buy (and vice
+   versa). No clusters of same-side dots.
+3. **Cooldown** — at least `MinBarsBetween` bars between any two dots.
+
+Raw trigger on a closed bar:
+- **Sell dot** — bar's high pierces the upper trigger band but it closes back
+  below it and closes down (upper-band rejection).
+- **Buy dot** — bar's low pierces the lower trigger band but it closes back
+  above it and closes up (lower-band rejection).
 
 ### Bands
 
-- Basis: `EMA(Close, MA_Period)`
+- Basis: `EMA(Close, MA_Period)`, optionally smoothed by `Smooth`.
 - Inner band: `basis ± Mult_Inner * ATR(ATR_Period)`
 - Outer band: `basis ± Mult_Outer * ATR(ATR_Period)`
 
 ## Inputs
 
-| Input          | Default | Meaning                          |
-|----------------|---------|----------------------------------|
-| `MA_Period`    | 34      | Basis EMA period                 |
-| `ATR_Period`   | 14      | ATR period for channel width     |
-| `Mult_Inner`   | 1.5     | Inner band ATR multiplier        |
-| `Mult_Outer`   | 2.5     | Outer band ATR multiplier        |
-| `DotOffsetPts` | 12      | Dot distance from the candle     |
+| Input             | Default | Meaning                                          |
+|-------------------|---------|--------------------------------------------------|
+| `MA_Period`       | 60      | Basis EMA period — **bigger = smoother, fewer signals** |
+| `Smooth`          | 5       | Extra band smoothing (1 = off)                   |
+| `ATR_Period`      | 30      | ATR period for channel width                     |
+| `Mult_Inner`      | 1.6     | Inner band ATR multiplier                        |
+| `Mult_Outer`      | 2.6     | Outer band ATR multiplier (signal trigger)       |
+| `Signal_On_Outer` | true    | Trigger on outer band (rarer) vs inner (more)    |
+| `Alternate`       | true    | Enforce buy → sell → buy alternation             |
+| `MinBarsBetween`  | 15      | Minimum bars between two dots (cooldown)         |
+| `DotOffsetPts`    | 20      | Dot distance from the candle                     |
+
+### Tuning for fewer / more signals
+
+- **Too many dots?** raise `MA_Period` (e.g. 80–120), raise `Mult_Outer`
+  (e.g. 3.0), or raise `MinBarsBetween`.
+- **Too few dots?** lower `MA_Period`, set `Signal_On_Outer = false`, or
+  lower `Mult_Outer`.
+- Values also depend on the **symbol and timeframe** — match the timeframe in
+  the video (looks like a higher TF) for the closest look.
 
 ## Install
 
