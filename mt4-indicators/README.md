@@ -29,58 +29,69 @@ This version is built to be genuinely non-repainting:
 
 - Every dot is evaluated only on **already-closed bars** (`shift >= 1`); the
   forming bar (`shift 0`) is never signalled.
-- Each dot depends only on data **to the left** of the signal bar (that bar's
-  own OHLC plus history). No future bar is read, so once a dot prints on a
-  closed bar it can never move or disappear.
-- The trade-off, stated plainly: a dot appears at the **close** of the
-  rejection bar, not intrabar. That one-bar confirmation is the price of it
-  being real.
+- Each dot depends only on data **to the left** of the signal bar. No future
+  bar is read, so once a dot prints on a closed bar it can never move or
+  disappear.
+- The trade-off, stated plainly: a dot appears at the **close** of the flip
+  bar, not intrabar. That one-bar confirmation is the price of it being real.
 
-### Signal logic (noise-controlled)
+### Signal logic — CONFIRMED trend flips (not band-touch)
 
-Like the video, dots are meant to be **rare** — one per major swing,
-alternating red-top / green-bottom. Three filters make that happen:
+Earlier drafts fired a dot whenever a wick poked a band and pulled back. That
+is a mean-reversion "rejection" and it produces lots of false signals on
+random spikes — the noise you saw.
 
-1. **Outer-band trigger** — a signal is only considered when price pierces
-   the *outer* band (an extreme), not the inner band.
-2. **Alternation** — after a sell, the next dot must be a buy (and vice
-   versa). No clusters of same-side dots.
-3. **Cooldown** — at least `MinBarsBetween` bars between any two dots.
+This version instead uses a **SuperTrend-style trend flip**, which is what the
+video's *confirmed* dots behave like:
 
-Raw trigger on a closed bar:
-- **Sell dot** — bar's high pierces the upper trigger band but it closes back
-  below it and closes down (upper-band rejection).
-- **Buy dot** — bar's low pierces the lower trigger band but it closes back
-  above it and closes up (lower-band rejection).
+- A hidden ATR trailing band follows price. The trend is **up** while price
+  holds above it and **down** while price holds below it.
+- A **green buy dot** prints only on the bar where price **closes above** the
+  band and the trend flips up (near bottoms).
+- A **red sell dot** prints only on the bar where price **closes below** the
+  band and the trend flips down (near tops).
 
-### Bands
+Because a flip requires a *close through the band*, signals are naturally
+**rare, clean, and strictly alternating** (buy → sell → buy). The close-through
+is the confirmation — no separate rejection guesswork.
+
+### Bands (the drawn red/green channel)
 
 - Basis: `EMA(Close, MA_Period)`, optionally smoothed by `Smooth`.
 - Inner band: `basis ± Mult_Inner * ATR(ATR_Period)`
 - Outer band: `basis ± Mult_Outer * ATR(ATR_Period)`
 
+The drawn channel is cosmetic (matches the video's look); the **signals come
+from the separate SuperTrend engine** below, so you tune them independently.
+
 ## Inputs
 
-| Input             | Default | Meaning                                          |
-|-------------------|---------|--------------------------------------------------|
-| `MA_Period`       | 60      | Basis EMA period — **bigger = smoother, fewer signals** |
-| `Smooth`          | 5       | Extra band smoothing (1 = off)                   |
-| `ATR_Period`      | 30      | ATR period for channel width                     |
-| `Mult_Inner`      | 1.6     | Inner band ATR multiplier                        |
-| `Mult_Outer`      | 2.6     | Outer band ATR multiplier (signal trigger)       |
-| `Signal_On_Outer` | true    | Trigger on outer band (rarer) vs inner (more)    |
-| `Alternate`       | true    | Enforce buy → sell → buy alternation             |
-| `MinBarsBetween`  | 15      | Minimum bars between two dots (cooldown)         |
-| `DotOffsetPts`    | 20      | Dot distance from the candle                     |
+**Drawn channel (visual only):**
 
-### Tuning for fewer / more signals
+| Input          | Default | Meaning                          |
+|----------------|---------|----------------------------------|
+| `MA_Period`    | 60      | Basis EMA period                 |
+| `Smooth`       | 5       | Extra band smoothing (1 = off)   |
+| `ATR_Period`   | 30      | ATR period for channel width     |
+| `Mult_Inner`   | 1.6     | Inner band ATR multiplier        |
+| `Mult_Outer`   | 2.6     | Outer band ATR multiplier        |
 
-- **Too many dots?** raise `MA_Period` (e.g. 80–120), raise `Mult_Outer`
-  (e.g. 3.0), or raise `MinBarsBetween`.
-- **Too few dots?** lower `MA_Period`, set `Signal_On_Outer = false`, or
-  lower `Mult_Outer`.
-- Values also depend on the **symbol and timeframe** — match the timeframe in
-  the video (looks like a higher TF) for the closest look.
+**Confirmed signal engine (the dots):**
+
+| Input           | Default | Meaning                                                     |
+|-----------------|---------|-------------------------------------------------------------|
+| `ST_ATR_Period` | 22      | ATR period for the trend engine                             |
+| `ST_Mult`       | 3.5     | Sensitivity — **higher = fewer, later, more-confirmed** dots |
+| `DotOffsetPts`  | 25      | Dot distance from the candle                                |
+
+### Tuning the number of signals
+
+`ST_Mult` is the main dial:
+
+- **Too many dots?** raise `ST_Mult` (try 4–6) and/or `ST_ATR_Period`.
+- **Too few dots?** lower `ST_Mult` (try 2–3).
+- Signal frequency also depends on **symbol and timeframe** — load it on the
+  same timeframe as the video (looks like H1/H4) for the closest match.
 
 ## Install
 
