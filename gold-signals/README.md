@@ -1,8 +1,12 @@
 # Aurum Desk — XAU/USD Signal Engine
 
-A single-file, zero-dependency web app that generates mechanical gold (XAU/USD)
-trading signals for **scalping (5-minute)** and **swing trading (1H/4H)**, live
-during market hours (Sun 22:00 UTC → Fri 21:00 UTC).
+A single-file, zero-dependency web app that generates gold (XAU/USD) trading
+signals on **5-minute, 15-minute and 1-hour** timeframes, live during market
+hours (Sun 22:00 UTC → Fri 21:00 UTC). The layout follows the standard
+technical-summary format used by signal sites: an overall gauge from Strong
+Sell to Strong Buy, a moving-averages vote table, an oscillators table, pivot
+points, and an actionable signal card with entry, stop loss and three take
+profits per timeframe.
 
 ## Run it
 
@@ -11,8 +15,7 @@ No build step, no server, no API key.
 - **Locally:** open `gold-signals/index.html` in any modern browser. Keep the tab
   open; it refreshes itself every 45 seconds.
 - **Hosted:** drop the file on any static host (Firebase Hosting, GitHub Pages,
-  Netlify). Example with this repo's Firebase setup: copy it into a hosting
-  public dir and `npx firebase deploy --only hosting`.
+  Netlify).
 
 > Note: it will not work inside sandboxed preview panes that block outbound
 > network requests — open it as a normal browser tab.
@@ -21,67 +24,64 @@ No build step, no server, no API key.
 
 | Feed | Source | Purpose |
 |---|---|---|
-| Candles (5m/15m/1h/4h) | Binance `PAXGUSDT` klines | PAXG is tokenized gold (1 token = 1 oz LBMA gold); trades 24/7 and tracks spot closely |
+| Candles (5m/15m/1h/1d) | Binance `PAXGUSDT` klines | PAXG is tokenized gold (1 token = 1 oz LBMA gold); trades 24/7 and tracks spot closely |
 | Live spot | gold-api.com `XAU` | True XAU spot; the app computes the PAXG↔spot offset and calibrates every displayed level to real spot |
 
 If the spot feed is unreachable the app falls back to raw PAXG prices and says so.
 
-## Strategy
+## How the verdict is built (per timeframe)
 
-Both engines are confluence-scored (0–100). A signal is **ACTIVE only at a
-score ≥ 70 while the gold market is open**; below that the card shows WAIT with
-the current lean. Signals fire on **closed candles only** — the forming candle
-is never used, so signals don't repaint.
+All computations use **closed candles only** — signals do not repaint.
 
-### Scalp engine (5M, filtered by 15M)
+**Moving averages (12 votes):** SMA and EMA of 5, 10, 20, 50, 100 and 200
+periods. Price above → Buy, below → Sell.
 
-| Check | Weight |
-|---|---|
-| EMA9/EMA21 relation (direction) | 25 |
-| Price on the right side of EMA50 (5M trend) | 15 |
-| 15M timeframe agreement (EMA9 vs EMA21) | 20 |
-| RSI(14) supportive but not exhausted (50–72 long / 28–50 short) | 15 |
-| MACD(12,26,9) histogram building in the trade direction | 15 |
-| London / New York session liquidity | 10 |
+**Oscillators (10 votes):**
 
-Levels: stop = 1.2 × ATR(14), TP1 = 1 × ATR (~0.8R), TP2 = 2 × ATR (~1.7R).
-A trigger is "fresh" for 3 bars after the EMA cross; after that the card tells
-you it's a late entry.
+| Indicator | Buy | Sell | Neutral |
+|---|---|---|---|
+| RSI (14) | < 30 or 55–70 | > 70 or 30–45 | 45–55 |
+| Stochastic %K (9,6) | < 20, or rising | > 80, or falling | — |
+| Stochastic RSI (14) | < 20 | > 80 | 20–80 |
+| MACD (12,26,9) | histogram > 0 | histogram < 0 | — |
+| ADX (14) | +DI > −DI (ADX ≥ 20) | −DI > +DI (ADX ≥ 20) | ADX < 20 |
+| Williams %R (14) | < −80 or −80…−50 | > −20 or −50…−20 | — |
+| CCI (14) | > +100 | < −100 | between |
+| Ultimate Oscillator | < 30 or 50–70 | > 70 or 30–50 | — |
+| ROC (12) | > 0 | < 0 | — |
+| Bull/Bear Power (13) | > 0 | < 0 | — |
 
-### Swing engine (1H, biased by 4H)
+Net score = (buys − sells) / votes. Bands: ≥ +0.50 **Strong Buy**, ≥ +0.15
+**Buy**, ≤ −0.50 **Strong Sell**, ≤ −0.15 **Sell**, else **Neutral**. The
+gauge needle, the tab chips and the signal card all read from this score.
 
-| Check | Weight |
-|---|---|
-| 4H structure (EMA21 vs EMA50 + price vs EMA50) | 30 |
-| 1H momentum aligned (EMA9 vs EMA21) | 20 |
-| Pullback to 1H EMA21 zone or fresh 1H momentum turn | 20 |
-| 1H RSI has room to run | 15 |
-| 1H MACD histogram turning in favour | 15 |
+**Signal levels:** entry = last close; stop = k × ATR(14) (5m/15m: 1.2–1.3×,
+1h: 1.5×); TP1/TP2/TP3 = 1/2/3 × ATR (1h: 1.5/2.5/4 ×). All levels are
+calibrated to live XAU spot.
 
-Levels: stop = 1.8 × ATR(1H), TP1 = 2 × ATR (~1.1R), TP2 = 3.5 × ATR (~1.9R).
+**Pivot points:** Classic, Fibonacci and Camarilla from the previous daily
+candle's high/low/close.
 
 ### Built-in accountability
 
-Every ACTIVE trigger is logged (browser localStorage) and its outcome is
-resolved automatically against subsequent price action — TP1/TP2 hit, stopped,
-or expired (scalps after 3h, swings after 5 days). The performance panel shows
-win rate, net R and average R per trade. **Trust the stats, not the feeling.**
-If the engine's net R goes negative over a meaningful sample, stop trading it
-and retune.
-
-Same-bar ambiguity (a candle touching both stop and target) is scored as a
-**loss** — the tracker is deliberately conservative.
+Every fresh **Strong** signal (score ≥ 0.5 with an EMA9/21 cross within the
+last 3 bars) is logged in browser localStorage and its outcome resolved
+automatically against later candles — TP1/TP2 hit, stopped, or expired. The
+performance panel shows win rate, net R and average R. **Trust the stats, not
+the feeling.** Same-bar stop/target ambiguity is scored as a loss — the
+tracker is deliberately conservative.
 
 ### Risk management
 
 The position sizer converts account size + risk % + the live stop distance into
 lots (1 standard lot = 100 oz, so a $1/oz move = $100/lot). Suggested defaults:
-risk 0.5–1% per scalp, 1–2% per swing, and stand aside outside London/NY hours.
+0.5–1% risk on 5m/15m signals, 1–2% on 1h, and stand aside outside London/NY
+hours.
 
 ## Honest limitations
 
-- Technical confluence has no knowledge of news. **Do not scalp through
-  FOMC, CPI or NFP releases** — spreads blow out and stops slip.
+- Technical consensus has no knowledge of news. **Do not trade through FOMC,
+  CPI or NFP releases** — spreads blow out and stops slip.
 - Candle structure comes from PAXG, which can deviate a few dollars from your
   broker's XAU feed; the spot calibration narrows this but execution prices are
   your broker's.
