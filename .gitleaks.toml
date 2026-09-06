@@ -1,0 +1,23 @@
+# Gitleaks configuration for this repository.
+# Extends the default ruleset; allowlists only known non-secret fixtures.
+title = "antigravity-projects gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures and documented demo credentials are not secrets"
+paths = [
+  '''aurumguard/backend/tests/.*''',
+  '''aurumguard/frontend/e2e/.*''',
+]
+regexes = [
+  '''Strong-Passw0rd-123''',
+  '''wrong-password-123''',
+  '''wrong-pass-12345''',
+  '''AdminDemo-Pass-2026''',
+  '''DemoUser-Pass-2026''',
+  '''ci-only-secret-key-not-for-production-0123456789''',
+  '''test-secret-key-not-for-production-1234''',
+  '''dev-only-insecure-secret-change-me''',
+]
