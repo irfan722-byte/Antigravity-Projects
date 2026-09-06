@@ -1,0 +1,3 @@
+# 28 Monitoring plan
+
+Signals already produced: `/health`, `analysis_runs` (duration, data status), `provider_health` history, notification delivery statuses, audit chain verification, strategy degradation checks. Plan: structured JSON logs (uvicorn + app logger), Prometheus metrics endpoint (tick duration, decisions by status, gate failure counts, provider latency/failures, push failures), OpenTelemetry traces for tick → snapshot → decision, alerts on: no analysis run for 5 min, DATA UNAVAILABLE for 15 min during market hours, provider consecutive failures ≥ 3, push failure rate > 20%, audit chain broken, strategy suspended. Dashboards: data health, decision mix, risk locks, paper performance.

@@ -1,0 +1,397 @@
+{
+  "version": "registry-v1",
+  "note": "Seed metadata for candidate strategies. Status and approval_history are overridden by the database once the admin workflow has acted. Statuses here are RESEARCH: nothing is approved by default.",
+  "strategies": [
+    {
+      "id": "PBC-H1",
+      "name": "Pullback Continuation",
+      "version": "1.0.0",
+      "owner": "quant-research",
+      "status": "RESEARCH",
+      "horizon": "INTRADAY",
+      "hypothesis": "In an established H4 trend, a shallow H1 pullback to the 20-period EMA that is rejected in the trend direction continues toward the prior swing extreme more often than not, after costs.",
+      "rationale": "Trend persistence in gold is documented across sessions; pullbacks to a widely watched average attract trend-following flow while positioning against the trend is unwound. The edge is conditional on the regime and disappears in ranges and around releases.",
+      "required_data": [
+        "XAUUSD H1 candles",
+        "XAUUSD H4 candles",
+        "XAUUSD D1 candles",
+        "live bid/ask",
+        "economic calendar",
+        "DXY daily",
+        "US10Y daily"
+      ],
+      "instruments": [
+        "XAUUSD"
+      ],
+      "timeframes": [
+        "H1",
+        "H4"
+      ],
+      "sessions": [
+        "LONDON",
+        "NEW_YORK",
+        "LONDON_NY_OVERLAP"
+      ],
+      "approved_regimes": [
+        "STRONG_TREND",
+        "WEAK_TREND"
+      ],
+      "prohibited_regimes": [
+        "NEWS_DOMINATED",
+        "THIN_LIQUIDITY",
+        "UNKNOWN",
+        "MIXED",
+        "RANGE",
+        "TRANSITION"
+      ],
+      "entry_setup": "H4 structure trend (HH/HL or LH/LL) agrees with regime direction; H1 EMA20 above/below EMA50; price pulled back to within 0.25 ATR of EMA20 within the last 6 closed H1 bars.",
+      "entry_trigger": "Last closed H1 bar closes back on the trend side of EMA20, in the trend direction, and either shows a rejection wick (>=60% of range) or a displacement body or closes beyond the previous bar's extreme.",
+      "confirmation_rules": [
+        "trigger bar must be closed",
+        "spread <= strategy limit at evaluation",
+        "no event lockout"
+      ],
+      "invalidation_rules": [
+        "H1 close beyond the pullback extreme before entry",
+        "regime changes to RANGE/MIXED/UNKNOWN",
+        "setup expiry reached",
+        "major USD event enters pre-event window"
+      ],
+      "stop_methodology": "Beyond the pullback extreme (lowest low / highest high of the pullback bars) plus 0.25 ATR(14,H1) buffer. Never widened.",
+      "tp1_methodology": "Nearest structural level in the trade direction at least 1.0 ATR away and at most 3R away, otherwise 2.0 x stop distance (so that the net, cost-adjusted R:R clears the 1.5 floor).",
+      "tp2_methodology": "Next structural level beyond TP1 (at most 5R from entry), otherwise 2.5 x stop distance. TP2 is always beyond TP1.",
+      "sizing_methodology": "Fixed fractional: risk budget / (effective stop distance x contract size), floored to lot step.",
+      "min_net_rr": 1.5,
+      "spread_limit": 0.6,
+      "slippage_limit": 0.3,
+      "news_restrictions": "No new entries from 30 minutes before to 15 minutes after a high-importance USD release.",
+      "setup_expiry_minutes": 180,
+      "max_holding_minutes": 720,
+      "known_failure_regimes": [
+        "RANGE",
+        "NEWS_DOMINATED",
+        "TRANSITION",
+        "VOLATILITY_COMPRESSION followed by expansion against trend"
+      ],
+      "suspension_rules": {
+        "rolling_trades": 30,
+        "min_rolling_expectancy_r": 0.0,
+        "max_rolling_drawdown_r": 8.0,
+        "min_rolling_profit_factor": 0.9
+      },
+      "retirement_rules": [
+        "two consecutive suspensions without a version change",
+        "out-of-sample expectancy negative on re-validation"
+      ],
+      "params": {
+        "ema_fast": 20,
+        "ema_slow": 50,
+        "atr_period": 14,
+        "pullback_lookback": 6,
+        "pullback_tolerance_atr": 0.25,
+        "stop_buffer_atr": 0.25,
+        "tp1_min_atr": 1.0,
+        "tp1_fallback_r": 2.0,
+        "tp2_fallback_r": 2.5,
+        "rsi_period": 14,
+        "tp1_max_r": 3.0,
+        "tp2_max_r": 5.0
+      },
+      "partial_close_at_tp1_pct": 50.0,
+      "move_to_breakeven_after_tp1": false,
+      "trailing_stop": null,
+      "approval_history": [],
+      "change_log": [
+        {
+          "version": "1.0.0",
+          "date": "2026-09-06",
+          "change": "initial research implementation"
+        }
+      ]
+    },
+    {
+      "id": "BRT-M15",
+      "name": "Breakout and Retest",
+      "version": "1.0.0",
+      "owner": "quant-research",
+      "status": "RESEARCH",
+      "horizon": "INTRADAY",
+      "hypothesis": "A displacement close through a previous-day or session extreme, followed by a held retest of that level, continues in the breakout direction by at least the breakout bar's range more often than it fails, after costs.",
+      "rationale": "Previous-day and session extremes are reference prices for a wide population of participants. A retest that holds after a displacement break indicates acceptance of the new price area rather than a stop-run.",
+      "required_data": [
+        "XAUUSD M15 candles",
+        "XAUUSD H1 candles",
+        "XAUUSD D1 candles",
+        "live bid/ask",
+        "economic calendar"
+      ],
+      "instruments": [
+        "XAUUSD"
+      ],
+      "timeframes": [
+        "M15",
+        "H1"
+      ],
+      "sessions": [
+        "LONDON",
+        "NEW_YORK",
+        "LONDON_NY_OVERLAP"
+      ],
+      "approved_regimes": [
+        "STRONG_TREND",
+        "WEAK_TREND",
+        "RANGE"
+      ],
+      "prohibited_regimes": [
+        "NEWS_DOMINATED",
+        "THIN_LIQUIDITY",
+        "UNKNOWN",
+        "MIXED"
+      ],
+      "entry_setup": "Within the last 8 closed M15 bars a bar closed beyond PDH/PDL, PWH/PWL or a completed session high/low with a displacement body (range >= 1.2 ATR, body >= 60%).",
+      "entry_trigger": "After the break, price returns to within 0.3 ATR of the level without any close back across it, and the last closed bar closes away from the level in the breakout direction.",
+      "confirmation_rules": [
+        "no close back across the level since the break",
+        "retest touch must occur",
+        "trigger bar closed"
+      ],
+      "invalidation_rules": [
+        "any close back across the level",
+        "more than 8 bars without a retest",
+        "setup expiry",
+        "event pre-window"
+      ],
+      "stop_methodology": "Beyond the retest extreme plus 0.25 ATR(14,M15). Never widened.",
+      "tp1_methodology": "Level plus the breakout bar's range (measured move), floored at 2.0 x stop distance and capped at 3R.",
+      "tp2_methodology": "Next structural level beyond TP1, otherwise 2.5 x stop distance.",
+      "sizing_methodology": "Fixed fractional, floored to lot step.",
+      "min_net_rr": 1.5,
+      "spread_limit": 0.5,
+      "slippage_limit": 0.25,
+      "news_restrictions": "No new entries from 30 minutes before to 15 minutes after a high-importance USD release.",
+      "setup_expiry_minutes": 60,
+      "max_holding_minutes": 480,
+      "known_failure_regimes": [
+        "THIN_LIQUIDITY",
+        "NEWS_DOMINATED",
+        "low-volatility ranges where breakouts lack displacement"
+      ],
+      "suspension_rules": {
+        "rolling_trades": 30,
+        "min_rolling_expectancy_r": 0.0,
+        "max_rolling_drawdown_r": 8.0,
+        "min_rolling_profit_factor": 0.9
+      },
+      "retirement_rules": [
+        "two consecutive suspensions without a version change",
+        "out-of-sample expectancy negative on re-validation"
+      ],
+      "params": {
+        "atr_period": 14,
+        "break_lookback": 8,
+        "displacement_atr_mult": 1.2,
+        "retest_tolerance_atr": 0.3,
+        "hold_tolerance_atr": 0.1,
+        "stop_buffer_atr": 0.25,
+        "tp1_floor_r": 2.0,
+        "tp2_fallback_r": 2.5,
+        "tp1_max_r": 3.0,
+        "tp2_max_r": 5.0
+      },
+      "partial_close_at_tp1_pct": 50.0,
+      "move_to_breakeven_after_tp1": false,
+      "trailing_stop": null,
+      "approval_history": [],
+      "change_log": [
+        {
+          "version": "1.0.0",
+          "date": "2026-09-06",
+          "change": "initial research implementation"
+        }
+      ]
+    },
+    {
+      "id": "RRJ-H4",
+      "name": "Range Rejection",
+      "version": "0.1.0",
+      "owner": "quant-research",
+      "status": "RESEARCH",
+      "horizon": "SWING",
+      "hypothesis": "In a confirmed range regime, a sweep of the range extreme that closes back inside reverts toward the range midpoint.",
+      "rationale": "Mean reversion inside accepted value areas; sweeps beyond the extreme exhaust breakout attempts.",
+      "required_data": [
+        "XAUUSD H4 candles",
+        "XAUUSD D1 candles",
+        "live bid/ask",
+        "economic calendar"
+      ],
+      "instruments": [
+        "XAUUSD"
+      ],
+      "timeframes": [
+        "H4",
+        "D1"
+      ],
+      "sessions": [
+        "LONDON",
+        "NEW_YORK",
+        "LONDON_NY_OVERLAP"
+      ],
+      "approved_regimes": [
+        "RANGE"
+      ],
+      "prohibited_regimes": [
+        "STRONG_TREND",
+        "NEWS_DOMINATED",
+        "THIN_LIQUIDITY",
+        "UNKNOWN",
+        "MIXED",
+        "VOLATILITY_EXPANSION"
+      ],
+      "entry_setup": "H4 consolidation range (width <= 3 ATR over 20 bars) and regime RANGE.",
+      "entry_trigger": "Last closed H4 bar wicks beyond the range extreme by >= 0.2 ATR and closes back inside with a rejection wick >= 60% of range.",
+      "confirmation_rules": [
+        "trigger bar closed",
+        "range regime confirmed"
+      ],
+      "invalidation_rules": [
+        "H4 close beyond the sweep extreme",
+        "regime leaves RANGE"
+      ],
+      "stop_methodology": "Beyond the sweep wick plus 0.3 ATR(14,H4).",
+      "tp1_methodology": "Range midpoint.",
+      "tp2_methodology": "Opposite range extreme minus 0.2 ATR.",
+      "sizing_methodology": "Fixed fractional, floored to lot step.",
+      "min_net_rr": 1.5,
+      "spread_limit": 0.6,
+      "slippage_limit": 0.3,
+      "news_restrictions": "No entries within 60 minutes of a high-importance USD release.",
+      "setup_expiry_minutes": 480,
+      "max_holding_minutes": 4320,
+      "known_failure_regimes": [
+        "range breakouts with displacement",
+        "news-driven expansion"
+      ],
+      "suspension_rules": {
+        "rolling_trades": 20,
+        "min_rolling_expectancy_r": 0.0,
+        "max_rolling_drawdown_r": 6.0,
+        "min_rolling_profit_factor": 0.9
+      },
+      "retirement_rules": [
+        "out-of-sample expectancy negative on re-validation"
+      ],
+      "params": {
+        "atr_period": 14,
+        "sweep_atr": 0.2,
+        "stop_buffer_atr": 0.3,
+        "tp2_inset_atr": 0.2,
+        "tp1_max_r": 3.0,
+        "tp2_max_r": 5.0
+      },
+      "partial_close_at_tp1_pct": 50.0,
+      "move_to_breakeven_after_tp1": false,
+      "trailing_stop": null,
+      "approval_history": [],
+      "change_log": [
+        {
+          "version": "0.1.0",
+          "date": "2026-09-06",
+          "change": "candidate; research only"
+        }
+      ]
+    },
+    {
+      "id": "PNC-M15",
+      "name": "Post-News Confirmation",
+      "version": "0.1.0",
+      "owner": "quant-research",
+      "status": "RESEARCH",
+      "horizon": "INTRADAY",
+      "hypothesis": "After a verified high-importance USD release with a large standardised surprise, and after the cooldown, gold continues in the direction confirmed jointly by DXY, yields and an M15 break of structure.",
+      "rationale": "Information is incorporated over minutes to hours as positioning adjusts; requiring price, dollar and yield confirmation filters knee-jerk spikes that reverse.",
+      "required_data": [
+        "XAUUSD M15 candles",
+        "live bid/ask",
+        "verified economic release",
+        "DXY intraday",
+        "US10Y intraday"
+      ],
+      "instruments": [
+        "XAUUSD"
+      ],
+      "timeframes": [
+        "M15"
+      ],
+      "sessions": [
+        "NEW_YORK",
+        "LONDON_NY_OVERLAP"
+      ],
+      "approved_regimes": [
+        "NEWS_DOMINATED",
+        "STRONG_TREND",
+        "WEAK_TREND",
+        "RANGE"
+      ],
+      "prohibited_regimes": [
+        "THIN_LIQUIDITY",
+        "UNKNOWN"
+      ],
+      "entry_setup": "News phase POST_RELEASE_CONFIRMATION; |standardised surprise| >= 1.0; DXY and gold responses consistent with the surprise direction.",
+      "entry_trigger": "M15 break of structure in the confirmed direction after cooldown.",
+      "confirmation_rules": [
+        "actual verified by provider",
+        "revised prior checked",
+        "spread back within limit"
+      ],
+      "invalidation_rules": [
+        "M15 close back through the release-bar midpoint",
+        "conflicting components in the release"
+      ],
+      "stop_methodology": "Beyond the post-release extreme plus 0.25 ATR(14,M15).",
+      "tp1_methodology": "2.0 x stop distance.",
+      "tp2_methodology": "Nearest structural level beyond TP1, otherwise 2.5 x stop distance.",
+      "sizing_methodology": "Fixed fractional at reduced (50%) risk budget.",
+      "min_net_rr": 1.5,
+      "spread_limit": 0.8,
+      "slippage_limit": 0.4,
+      "news_restrictions": "Only trades the confirmation phase; never the release itself.",
+      "setup_expiry_minutes": 90,
+      "max_holding_minutes": 360,
+      "known_failure_regimes": [
+        "mixed releases",
+        "two-sided components",
+        "thin liquidity"
+      ],
+      "suspension_rules": {
+        "rolling_trades": 20,
+        "min_rolling_expectancy_r": 0.0,
+        "max_rolling_drawdown_r": 6.0,
+        "min_rolling_profit_factor": 0.9
+      },
+      "retirement_rules": [
+        "out-of-sample expectancy negative on re-validation"
+      ],
+      "params": {
+        "atr_period": 14,
+        "min_abs_surprise_z": 1.0,
+        "stop_buffer_atr": 0.25,
+        "tp1_r": 2.0,
+        "tp2_fallback_r": 2.5,
+        "tp1_max_r": 3.0,
+        "tp2_max_r": 5.0
+      },
+      "partial_close_at_tp1_pct": 50.0,
+      "move_to_breakeven_after_tp1": false,
+      "trailing_stop": null,
+      "approval_history": [],
+      "change_log": [
+        {
+          "version": "0.1.0",
+          "date": "2026-09-06",
+          "change": "candidate; research only"
+        }
+      ]
+    }
+  ]
+}
