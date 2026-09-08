@@ -65,7 +65,7 @@ class MockMarketDataProvider(MarketDataProvider):
         self._last_ok = end
         return out
 
-    def get_quote(self, instrument: str, now: datetime) -> Quote:
+    def get_quote(self, instrument: str, now: datetime, max_age: float | None = None) -> Quote:
         now = ensure_utc(now)
         m1 = self.get_candles(instrument, Timeframe.M1, now - timedelta(hours=72), now)
         closed = [c for c in m1 if c.complete]

@@ -79,7 +79,9 @@ class MarketDataProvider(BaseProvider):
     kind = "market_data"
 
     @abstractmethod
-    def get_quote(self, instrument: str, now: datetime) -> Quote: ...
+    def get_quote(self, instrument: str, now: datetime, max_age: float | None = None) -> Quote:
+        """Return a quote. ``max_age`` (seconds) asks a caching adapter for a quote no older than
+        that; ``None`` accepts the adapter's default cache lifetime. Mock adapters ignore it."""
 
     @abstractmethod
     def get_candles(self, instrument: str, timeframe: Timeframe, start: datetime, end: datetime) -> list[Candle]: ...

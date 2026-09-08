@@ -7,7 +7,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from ...core.candles import Timeframe
-from ...core.integrity import validate_quote
+from ...core.integrity import IntegrityConfig, validate_quote
 from ...core.structure import analyse_structure
 from ...core.timeutil import market_state, session_label
 from ...db.base import get_db
@@ -28,7 +28,13 @@ def quote(request: Request, user: User = Depends(current_user)):
         q = ps.market.get_quote("XAUUSD", now)
     except ProviderError as exc:
         raise HTTPException(503, f"quote unavailable: {exc}") from exc
-    rep = validate_quote(q, now)
+    # A caching adapter (live provider) serves the UI a quote up to its cache lifetime old on purpose;
+    # judge staleness against that lifetime here. The analysis loop uses the strict limit.
+    ttl = getattr(ps.market, "quote_ttl_seconds", None)
+    cfg = IntegrityConfig()
+    if ttl:
+        cfg = IntegrityConfig(quote_max_age_seconds=max(cfg.quote_max_age_seconds, float(ttl)))
+    rep = validate_quote(q, now, cfg)
     return {"instrument": "XAU/USD", "bid": q.bid, "ask": q.ask, "mid": round(q.mid, 2), "spread": round(q.spread, 2), "ts": q.ts, "provider": q.provider, "demo_data": ps.demo_mode, "integrity": rep.to_dict(), "market_state": market_state(now).value, "session": session_label(now), "user_timezone": user.settings.timezone}
 
 

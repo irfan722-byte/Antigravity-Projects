@@ -39,12 +39,17 @@ class Settings(BaseSettings):
 
     # --- providers (mock is the default; nothing paid is required to run) ---
     market_data_provider: Literal["mock", "twelvedata"] = "mock"
-    calendar_provider: Literal["mock"] = "mock"
+    calendar_provider: Literal["mock", "none"] = "mock"
     macro_provider: Literal["mock", "fred"] = "mock"
-    news_provider: Literal["mock"] = "mock"
+    news_provider: Literal["mock", "none"] = "mock"
     push_provider: Literal["mock", "webpush"] = "mock"
     twelvedata_api_key: str | None = None
     fred_api_key: str | None = None
+    # Twelve Data credit control (see app/providers/twelvedata.py): the UI is served a cached quote up to
+    # this many seconds old; the analysis loop always requests a fresh one. Spread is a paper-trading cost
+    # assumption because the price endpoint is mid-only; 0 reports a zero spread and flags it.
+    twelvedata_quote_ttl_seconds: float = 300.0
+    twelvedata_assumed_spread_usd: float = 0.30
 
     # --- push (VAPID) ---
     vapid_public_key: str | None = None

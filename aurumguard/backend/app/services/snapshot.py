@@ -70,7 +70,7 @@ def build_snapshot(providers: ProviderSet, now: datetime, user_tz: str, timefram
     quote = None
     quote_report: IntegrityReport | None = None
     try:
-        quote = market.get_quote("XAUUSD", now)
+        quote = market.get_quote("XAUUSD", now, max_age=icfg.quote_max_age_seconds)
         quote_report = validate_quote(quote, now, icfg)
     except ProviderError as exc:
         data_unavailable.append(f"quote: {exc}")

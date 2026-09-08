@@ -4,8 +4,21 @@ import { api, ApiError } from "@/lib/api";
 import { clearTokens, isLoggedIn } from "@/lib/auth";
 import type { Me, UserSettings } from "@/lib/types";
 
-interface Ctx { me: Me | null; settings: UserSettings | null; loading: boolean; demo: boolean; reload: () => Promise<void>; logout: () => void; theme: string; setTheme: (t: string) => void }
-const AppCtx = createContext<Ctx>({ me: null, settings: null, loading: true, demo: true, reload: async () => {}, logout: () => {}, theme: "system", setTheme: () => {} });
+interface ProviderSummary { name: string; is_mock: boolean; disabled: boolean }
+interface Ctx { me: Me | null; settings: UserSettings | null; loading: boolean; demo: boolean; dataNotice: string | null; reload: () => Promise<void>; logout: () => void; theme: string; setTheme: (t: string) => void }
+const AppCtx = createContext<Ctx>({ me: null, settings: null, loading: true, demo: true, dataNotice: null, reload: async () => {}, logout: () => {}, theme: "system", setTheme: () => {} });
+const KIND_LABEL: Record<string, string> = { economic_calendar: "economic calendar", trading_calendar: "trading calendar", macro_series: "macro series", news: "news", positioning: "positioning", etf_flows: "ETF flows" };
+/** Text for the amber banner when prices are live but other inputs are synthetic or switched off. */
+export function liveDataNotice(providers: Record<string, ProviderSummary> | undefined): string | null {
+  if (!providers || !providers.market_data || providers.market_data.is_mock) return null;
+  const synthetic = Object.entries(providers).filter(([k, p]) => k !== "market_data" && k !== "push" && p.is_mock).map(([k]) => KIND_LABEL[k] ?? k);
+  const disabled = Object.entries(providers).filter(([k, p]) => k !== "market_data" && k !== "push" && p.disabled).map(([k]) => KIND_LABEL[k] ?? k);
+  const parts = [`LIVE PRICES via ${providers.market_data.name}`];
+  if (synthetic.length) parts.push(`synthetic: ${synthetic.join(", ")}`);
+  if (disabled.length) parts.push(`disabled: ${disabled.join(", ")}`);
+  parts.push("paper trading only, live execution disabled");
+  return parts.join(" · ");
+}
 
 export function useApp() { return useContext(AppCtx); }
 
@@ -14,6 +27,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [demo, setDemo] = useState(true);
+  const [dataNotice, setDataNotice] = useState<string | null>(null);
   const [theme, setThemeState] = useState<string>("system");
 
   const applyTheme = useCallback((t: string) => {
@@ -24,8 +38,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const meta = await api<{ demo_data: boolean }>("/api/meta", { auth: false });
+      const meta = await api<{ demo_data: boolean; providers?: Record<string, ProviderSummary> }>("/api/meta", { auth: false });
       setDemo(meta.demo_data);
+      setDataNotice(liveDataNotice(meta.providers));
     } catch { /* backend unreachable: keep demo=true so the banner stays visible */ }
     if (!isLoggedIn()) { setMe(null); setSettings(null); setLoading(false); return; }
     try {
@@ -48,10 +63,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<Ctx>(() => ({
-    me, settings, loading, demo, reload,
+    me, settings, loading, demo, dataNotice, reload,
     logout: () => { clearTokens(); setMe(null); setSettings(null); window.location.href = "/login"; },
     theme, setTheme: (t) => { setThemeState(t); localStorage.setItem("ag_theme", t); applyTheme(t); },
-  }), [me, settings, loading, demo, reload, theme, applyTheme]);
+  }), [me, settings, loading, demo, dataNotice, reload, theme, applyTheme]);
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }
 

@@ -1,5 +1,6 @@
 "use client";
 import { FormEvent, useState } from "react";
+import { summarize } from "@/components/DataView";
 import { useApi } from "@/components/Providers";
 import { ErrorBox, Json, Loading, Section } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -30,7 +31,7 @@ export default function Backtest() {
         <div className="sm:col-span-3"><button className="btn btn-primary">Run</button> <span className="muted text-xs">Runs execute in the background. Validation on a year of data takes several minutes.</span></div>
       </form>
       <ErrorBox error={err} />
-      <Section title="Runs">{!runs ? <Loading /> : <div className="scroll-x"><table className="table"><thead><tr><th>Run</th><th>Strategy</th><th>Kind</th><th>Data</th><th>Status</th><th>Summary</th><th>Trades hash</th></tr></thead><tbody>{runs.runs.map((x) => <tr key={x.run_id}><td><button className="btn py-0" onClick={() => setSel(x.run_id)}>{x.run_id.slice(0, 8)}</button></td><td>{x.strategy_id}</td><td>{x.kind}</td><td>{x.data_label}</td><td>{x.status}{x.error ? ` (${x.error.slice(0, 60)})` : ""}</td><td className="text-xs">{JSON.stringify(x.summary)}</td><td className="text-xs">{x.trades_hash}</td></tr>)}</tbody></table></div>}</Section>
+      <Section title="Runs">{!runs ? <Loading /> : <div className="scroll-x"><table className="table"><thead><tr><th>Run</th><th>Strategy</th><th>Kind</th><th>Data</th><th>Status</th><th>Summary</th><th>Trades hash</th></tr></thead><tbody>{runs.runs.map((x) => <tr key={x.run_id}><td><button className="btn py-0" onClick={() => setSel(x.run_id)}>{x.run_id.slice(0, 8)}</button></td><td>{x.strategy_id}</td><td>{x.kind}</td><td>{x.data_label}</td><td>{x.status}{x.error ? ` (${x.error.slice(0, 60)})` : ""}</td><td className="text-xs">{summarize(x.summary, undefined, 220)}</td><td className="text-xs">{x.trades_hash}</td></tr>)}</tbody></table></div>}</Section>
       {sel && <Section title={`Run ${sel.slice(0, 8)}`}>{!detail ? <Loading /> : detail.status !== "DONE" ? <p>{detail.status}</p> : <>
         {"trades" in m && <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm mb-2">{["trades", "win_rate", "expectancy_r", "profit_factor", "max_drawdown_usd", "net_usd", "costs_usd", "brier"].map((k) => <div key={k}><span className="muted">{k}</span><br />{String(m[k] ?? "–")}</div>)}</div>}
         {r?.acceptance_checklist ? <><h3 className="font-bold text-sm">Acceptance checklist (for human review)</h3><Json value={r.acceptance_checklist} /></> : null}

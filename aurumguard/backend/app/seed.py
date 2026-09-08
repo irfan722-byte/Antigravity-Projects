@@ -56,7 +56,9 @@ def seed(validate: bool = True, run_analysis: bool = True, quick: bool = False) 
                 audit.record(db, "seed", "seed.user_created", u.id, {"role": role})
             out["users"].append({"email": email, "password": pw, "role": role})
         strategy_service.ensure_records(db)
-        providers = build_providers(s)
+        # Validation and the seed's analysis pass always use DEMO data: with a live provider this would
+        # spend hundreds of API credits fetching months of candles, and the seed must stay reproducible.
+        providers = build_providers(s.model_copy(update={"market_data_provider": "mock"}))
         if validate:
             bt = Backtester(providers.market, providers.calendar, get_spec("mock-generic-100oz"))
             strategies = build_strategies()

@@ -59,6 +59,30 @@ Open http://localhost:3000 and log in with the demo accounts the seed creates (a
 
 These accounts exist only in your local demo database. Eight wrong passwords lock an account for 15 minutes. Or `docker compose up --build`.
 
+## Live prices (optional)
+
+The demo runs on synthetic data. To analyse **real XAU/USD prices** you need a Twelve Data API key
+(https://twelvedata.com, the free plan is enough for a 5-minute analysis cadence). Live *execution* stays
+disabled; this only changes where prices come from.
+
+1. Seed the demo first with the mock provider (validation always runs on synthetic data).
+2. In `aurumguard/backend/.env` set:
+   ```
+   MARKET_DATA_PROVIDER=twelvedata
+   TWELVEDATA_API_KEY=<your key>
+   CALENDAR_PROVIDER=none       # otherwise synthetic events would lock out real prices
+   NEWS_PROVIDER=none
+   ANALYSIS_INTERVAL_SECONDS=300 # free tier: ~700 credits/day; 60 needs a paid plan
+   ```
+3. Verify the key before starting the server: `python -m app.check_provider` (Windows: `.venv\Scripts\python -m app.check_provider`).
+   It prints one quote, three candle batches and the estimated daily credit usage, and exits non-zero on failure.
+4. Start uvicorn. The red DEMO banner is replaced by an amber banner that names the live source and every
+   input that is still synthetic (macro series, positioning, ETF flows) or disabled (calendar, news).
+
+What live mode does **not** give you: observed bid/ask (the quote endpoint is mid-only, so the spread is a
+configurable cost assumption, `TWELVEDATA_ASSUMED_SPREAD_USD`), real economic-event awareness, or real
+intermarket data. Treat setups produced in this mode as a plumbing test on real prices, not as validated signals.
+
 ## Tests
 ```bash
 cd aurumguard/backend && .venv/bin/pytest -q            # 69 tests (Windows: .venv\Scripts\pytest -q)

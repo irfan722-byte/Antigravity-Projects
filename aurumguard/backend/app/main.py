@@ -105,7 +105,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/meta")
     def meta():
-        return {"name": settings.app_name, "version": "0.1.0", "demo_data": app.state.providers.demo_mode, "market_data_provider": app.state.providers.market.name, "live_execution": "disabled", "disclosure": "AurumGuard provides rule-based analysis and paper trading for education and personal research. It is not investment advice, has no regulatory approval, and cannot guarantee any outcome. Trading gold involves risk of loss."}
+        return {"name": settings.app_name, "version": "0.1.0", "demo_data": app.state.providers.demo_mode, "market_data_provider": app.state.providers.market.name, "data_mode": app.state.providers.data_mode, "providers": app.state.providers.summary(), "live_execution": "disabled", "disclosure": "AurumGuard provides rule-based analysis and paper trading for education and personal research. It is not investment advice, has no regulatory approval, and cannot guarantee any outcome. Trading gold involves risk of loss."}
 
     return app
 

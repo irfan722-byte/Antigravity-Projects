@@ -3,6 +3,7 @@ import React from "react";
 import Link from "next/link";
 import { fmtNum, fmtTime, statusLabel } from "@/lib/format";
 import type { Decision, Gate, EvidenceItem } from "@/lib/types";
+import { DataView } from "./DataView";
 
 export function StatusBadge({ status }: { status: string }) {
   const icon: Record<string, string> = { BUY_SETUP: "▲", SELL_SETUP: "▼", WAIT: "◔", NO_TRADE: "■", EVENT_LOCKOUT: "⏸", DATA_UNAVAILABLE: "⚠" };
@@ -61,4 +62,5 @@ export function EvidenceList({ items }: { items: EvidenceItem[] }) {
   return <ul className="text-sm space-y-1">{items.map((e, i) => <li key={`${e.key}-${i}`}><strong>{e.family}</strong> · {e.key} {e.direction > 0 ? "▲" : e.direction < 0 ? "▼" : "•"} {Math.round(e.strength * 100)}% — {e.description} <span className="muted">[{e.source}]</span></li>)}</ul>;
 }
 
-export function Json({ value }: { value: unknown }) { return <pre className="code">{JSON.stringify(value, null, 2)}</pre>; }
+/** Readable rendering of a structured payload (tables, formatted values). Never a raw JSON dump. */
+export function Json({ value }: { value: unknown }) { return <DataView value={value} />; }

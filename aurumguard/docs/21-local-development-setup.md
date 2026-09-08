@@ -30,3 +30,10 @@ cd aurumguard/frontend && npm run typecheck && npm run lint && npm test && npx p
 Docker: `docker compose up --build` (PostgreSQL + Redis + API + web, mock providers).
 
 Expected: `GET /health` → `{"status":"ok","demo_data":true,...}`; the UI shows the red DEMO DATA banner; `/dashboard` shows four horizon decisions after the first analysis tick (≤ 60 s).
+
+## Switching to live prices
+
+See the "Live prices (optional)" section of the AurumGuard README. Short version: seed with the mock
+provider, set `MARKET_DATA_PROVIDER=twelvedata`, `TWELVEDATA_API_KEY`, `CALENDAR_PROVIDER=none`,
+`NEWS_PROVIDER=none`, `ANALYSIS_INTERVAL_SECONDS=300` in `backend/.env`, run
+`python -m app.check_provider`, then start uvicorn.

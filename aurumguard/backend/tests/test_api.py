@@ -38,7 +38,9 @@ def auth(token):
 def test_health_and_meta(client):
     r = client.get("/health")
     assert r.status_code == 200 and r.json()["demo_data"] is True
-    assert client.get("/api/meta").json()["live_execution"] == "disabled"
+    meta = client.get("/api/meta").json()
+    assert meta["live_execution"] == "disabled" and meta["data_mode"] == "DEMO"
+    assert meta["providers"]["market_data"]["is_mock"] is True and meta["providers"]["economic_calendar"]["disabled"] is False
     assert r.headers["X-Content-Type-Options"] == "nosniff" and "Content-Security-Policy" in r.headers
 
 

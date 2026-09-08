@@ -12,3 +12,20 @@ describe("ui", () => {
     expect(screen.getByRole("link", { name: /Evidence Inspector/ })).toHaveAttribute("href", "/evidence/abc");
   });
 });
+
+import { liveDataNotice } from "./Providers";
+
+describe("liveDataNotice", () => {
+  const base = { economic_calendar: { name: "mock", is_mock: true, disabled: false }, news: { name: "none", is_mock: false, disabled: true }, macro_series: { name: "mock", is_mock: true, disabled: false }, push: { name: "mock", is_mock: true, disabled: false } };
+  it("is null while prices are synthetic (red DEMO banner applies instead)", () => {
+    expect(liveDataNotice({ market_data: { name: "mock", is_mock: true, disabled: false }, ...base })).toBeNull();
+    expect(liveDataNotice(undefined)).toBeNull();
+  });
+  it("names the live source and every synthetic or disabled input", () => {
+    const s = liveDataNotice({ market_data: { name: "twelvedata", is_mock: false, disabled: false }, ...base })!;
+    expect(s).toContain("LIVE PRICES via twelvedata");
+    expect(s).toContain("synthetic: economic calendar, macro series");
+    expect(s).toContain("disabled: news");
+    expect(s).not.toContain("push");
+  });
+});

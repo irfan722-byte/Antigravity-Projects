@@ -12,3 +12,16 @@
 10. i18n/RTL is architecture only; no Arabic strings.
 11. Accessibility: semantics, focus styles, reduced motion, keyboard-reachable controls present; no automated axe audit yet.
 12. Load tests not run.
+
+## Live-price mode (Twelve Data)
+
+- The adapter has been exercised against an in-process fake of the documented endpoints and against the
+  real API only by the repository owner's key check; it is not covered by CI.
+- Quote is mid-only. The reported spread is the `TWELVEDATA_ASSUMED_SPREAD_USD` assumption, labelled in the
+  quote provenance and provider health; it is a paper-trading cost input, not market data.
+- With `CALENDAR_PROVIDER=none` the event gate (G06) cannot protect around real releases; with `mock` it
+  reacts to synthetic events instead. Neither is a substitute for a licensed calendar.
+- Macro, positioning and ETF-flow inputs remain synthetic in this build even when prices are live, so the
+  intermarket evidence family should be read as placeholder in live mode.
+- Free-tier budget (about 800 credits/day) requires `ANALYSIS_INTERVAL_SECONDS=300`; the UI shows a quote
+  up to `TWELVEDATA_QUOTE_TTL_SECONDS` old on purpose and flags it as such.

@@ -17,7 +17,7 @@ const NAV: { href: string; key: string; group: string; admin?: boolean }[] = [
 const MOBILE = ["/dashboard", "/signals", "/charts", "/paper", "/notifications"];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { me, settings, loading, demo, logout, theme, setTheme } = useApp();
+  const { me, settings, loading, demo, dataNotice, logout, theme, setTheme } = useApp();
   const path = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -32,7 +32,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const groups = Array.from(new Set(NAV.map((n) => n.group)));
   return (
     <div className="min-h-screen flex flex-col">
-      {demo && <div className="demo-banner" role="alert">{t("demo_banner")}</div>}
+      {demo ? <div className="demo-banner" role="alert">{t("demo_banner")}</div> : dataNotice ? <div className="live-banner" role="status">{dataNotice}</div> : null}
       <header className="flex items-center gap-3 px-3 py-2 border-b" style={{ borderColor: "var(--border)" }}>
         <button className="btn sm:hidden" aria-label="Open navigation" aria-expanded={open} onClick={() => setOpen(!open)}>☰</button>
         <Link href="/dashboard" className="font-extrabold" style={{ color: "var(--accent)" }}>AurumGuard</Link>

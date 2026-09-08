@@ -1,5 +1,6 @@
 "use client";
 import { useApp, useApi } from "@/components/Providers";
+import { summarize } from "@/components/DataView";
 import { ErrorBox, Loading, Section } from "@/components/ui";
 import { fmtTime } from "@/lib/format";
 
@@ -14,7 +15,7 @@ export default function Audit() {
     <div>
       <h1 className="text-2xl font-bold mb-3">Audit dashboard</h1>
       {data.chain && <p className="card mb-3 text-sm">Hash chain over last {data.chain.rows} rows: <strong style={{ color: data.chain.ok ? "var(--buy)" : "var(--sell)" }}>{data.chain.ok ? "intact" : `BROKEN at ${data.chain.broken_ids.join(", ")}`}</strong></p>}
-      <Section title="Entries"><div className="scroll-x"><table className="table"><thead><tr><th>#</th><th>Time</th><th>Actor</th><th>Action</th><th>Subject</th><th>Detail</th><th>Hash</th></tr></thead><tbody>{data.items.map((r) => <tr key={r.id}><td>{r.id}</td><td>{fmtTime(r.ts, tz)}</td><td>{r.actor.slice(0, 10)}</td><td>{r.action}</td><td>{r.subject.slice(0, 24)}</td><td className="text-xs">{JSON.stringify(r.detail).slice(0, 160)}</td><td className="text-xs">{r.row_hash.slice(0, 10)}</td></tr>)}</tbody></table></div></Section>
+      <Section title="Entries"><div className="scroll-x"><table className="table"><thead><tr><th>#</th><th>Time</th><th>Actor</th><th>Action</th><th>Subject</th><th>Detail</th><th>Hash</th></tr></thead><tbody>{data.items.map((r) => <tr key={r.id}><td>{r.id}</td><td>{fmtTime(r.ts, tz)}</td><td>{r.actor.slice(0, 10)}</td><td>{r.action}</td><td>{r.subject.slice(0, 24)}</td><td className="text-xs">{summarize(r.detail, tz)}</td><td className="text-xs">{r.row_hash.slice(0, 10)}</td></tr>)}</tbody></table></div></Section>
     </div>
   );
 }

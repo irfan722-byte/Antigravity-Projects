@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { summarize } from "@/components/DataView";
 import { useApp, useApi } from "@/components/Providers";
 import { ErrorBox, Json, Loading, Section } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -34,7 +35,7 @@ export default function Strategies() {
             <p><strong>Stop:</strong> {s.stop_methodology}</p><p><strong>TP1:</strong> {s.tp1_methodology}</p><p><strong>TP2:</strong> {s.tp2_methodology}</p><p><strong>Sizing:</strong> {s.sizing_methodology}</p>
             <p><strong>Limits:</strong> min net R:R {s.min_net_rr}, spread ≤ {s.spread_limit}, slippage ≤ {s.slippage_limit}, expiry {s.setup_expiry_minutes} min, max hold {s.max_holding_minutes ?? "n/a"} min · <strong>News:</strong> {s.news_restrictions}</p>
             <p><strong>Known failure regimes:</strong> {s.known_failure_regimes.join("; ")}</p><p><strong>Required data:</strong> {s.required_data.join("; ")}</p>
-            <p><strong>Suspension rules:</strong> {JSON.stringify(s.suspension_rules)} · <strong>Retirement:</strong> {s.retirement_rules.join("; ")}</p>
+            <p><strong>Suspension rules:</strong> {summarize(s.suspension_rules, undefined, 400)} · <strong>Retirement:</strong> {s.retirement_rules.join("; ")}</p>
             <details><summary>Parameters</summary><Json value={s.params} /></details>
             <details><summary>Validation results</summary><Json value={s.validation_results} /></details>
             <details><summary>Backtest results (summary)</summary><Json value={{ in_sample: (s.backtest_results as { in_sample?: unknown }).in_sample, out_of_sample: (s.backtest_results as { out_of_sample?: unknown }).out_of_sample, acceptance_checklist: (s.backtest_results as { acceptance_checklist?: unknown }).acceptance_checklist }} /></details>
