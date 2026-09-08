@@ -23,8 +23,8 @@ from .services.auth import hash_password, new_id
 
 UTC = UTC
 DEMO_USERS = [
-    ("admin@aurumguard.local", "AdminDemo-Pass-2026", "admin"),
-    ("demo@aurumguard.local", "DemoUser-Pass-2026", "user"),
+    ("admin@aurumguard.demo", "AdminDemo-Pass-2026", "admin"),
+    ("demo@aurumguard.demo", "DemoUser-Pass-2026", "user"),
 ]
 
 
@@ -39,6 +39,14 @@ def seed(validate: bool = True, run_analysis: bool = True, quick: bool = False) 
         defaults = RiskLimits.defaults().to_dict()
         for email, pw, role in DEMO_USERS:
             u = db.query(User).filter(User.email == email).first()
+            if u is None:
+                # Earlier seeds used a reserved ".local" domain that the login schema rejects; rename in place.
+                legacy = db.query(User).filter(User.email == email.replace("@aurumguard.demo", "@aurumguard.local")).first()
+                if legacy is not None:
+                    legacy.email = email
+                    db.commit()
+                    audit.record(db, "seed", "seed.user_email_migrated", legacy.id, {"to": email})
+                    u = legacy
             if u is None:
                 u = User(id=new_id(), email=email, password_hash=hash_password(pw), role=role, disclosure_accepted_at=datetime.now(tz=UTC), onboarding_completed=True)
                 db.add(u)

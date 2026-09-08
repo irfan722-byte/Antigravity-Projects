@@ -10,6 +10,10 @@ const withSerwist = withSerwistInit({
 });
 
 const apiBase = process.env.API_INTERNAL_URL ?? "http://localhost:8000";
+// `next dev` compiles with eval-based source maps and React Refresh; both need 'unsafe-eval'.
+// Without it the dev bundle throws before hydration and every form falls back to a plain
+// HTML submit. Production builds (`next build && next start`) keep the strict policy.
+const isDev = process.env.NODE_ENV !== "production";
 
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -20,7 +24,7 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
+      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self'",

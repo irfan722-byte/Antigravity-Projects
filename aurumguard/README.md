@@ -54,8 +54,8 @@ Open http://localhost:3000 and log in with the demo accounts the seed creates (a
 
 | Role  | Email                    | Password            |
 |-------|--------------------------|---------------------|
-| admin | admin@aurumguard.local   | AdminDemo-Pass-2026 |
-| user  | demo@aurumguard.local    | DemoUser-Pass-2026  |
+| admin | admin@aurumguard.demo   | AdminDemo-Pass-2026 |
+| user  | demo@aurumguard.demo    | DemoUser-Pass-2026  |
 
 These accounts exist only in your local demo database. Eight wrong passwords lock an account for 15 minutes. Or `docker compose up --build`.
 

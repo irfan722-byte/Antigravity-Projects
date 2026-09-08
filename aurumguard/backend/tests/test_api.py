@@ -155,3 +155,45 @@ def test_privacy_export_and_delete(client):
     assert client.post("/api/users/delete", json={"password": "wrong-pass-12345", "confirm": "DELETE MY ACCOUNT"}, headers=auth(tok)).status_code == 401
     assert client.post("/api/users/delete", json={"password": "Strong-Passw0rd-123", "confirm": "DELETE MY ACCOUNT"}, headers=auth(tok)).status_code == 204
     assert client.get("/api/auth/me", headers=auth(tok)).status_code == 401
+
+
+def test_seeded_demo_accounts_can_log_in(client):
+    """Regression: an earlier seed used a reserved '.local' domain that LoginIn rejected (422)."""
+    from app.api.schemas import LoginIn
+    from app.seed import DEMO_USERS, seed
+
+    for email, pw, _role in DEMO_USERS:
+        LoginIn(email=email, password=pw)  # schema must accept the seeded addresses
+    seed(validate=False, run_analysis=False)
+    for email, pw, _role in DEMO_USERS:
+        r = client.post("/api/auth/login", json={"email": email, "password": pw})
+        assert r.status_code == 200, f"{email}: {r.status_code} {r.text}"
+        assert r.json()["onboarding_completed"] is True
+
+
+def test_seed_migrates_legacy_local_demo_email(client):
+    from app.db.base import SessionLocal
+    from app.db.models import User
+    from app.seed import DEMO_USERS, seed
+    from app.services.auth import hash_password, new_id
+
+    legacy_email = "legacy@aurumguard.local"
+    target_email = "legacy@aurumguard.demo"
+    db = SessionLocal()
+    try:
+        db.query(User).filter(User.email.in_([legacy_email, target_email])).delete(synchronize_session=False)
+        db.add(User(id=new_id(), email=legacy_email, password_hash=hash_password("Legacy-Pass-2026x"), role="user", disclosure_accepted_at=datetime.now(tz=UTC), onboarding_completed=True))
+        db.commit()
+    finally:
+        db.close()
+    try:
+        DEMO_USERS.append((target_email, "Legacy-Pass-2026x", "user"))
+        seed(validate=False, run_analysis=False)
+    finally:
+        DEMO_USERS.pop()
+    db = SessionLocal()
+    try:
+        assert db.query(User).filter(User.email == legacy_email).first() is None
+        assert db.query(User).filter(User.email == target_email).first() is not None
+    finally:
+        db.close()

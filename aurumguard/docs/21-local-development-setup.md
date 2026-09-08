@@ -11,7 +11,7 @@ cp .env.example .env            # defaults: sqlite, mock providers, analysis loo
 .venv/bin/python -m app.seed --quick   # demo users + DEMO validation/approval (minutes)
 .venv/bin/uvicorn app.main:app --reload --port 8000
 ```
-Demo credentials printed by the seed: `admin@aurumguard.local / AdminDemo-Pass-2026`, `demo@aurumguard.local / DemoUser-Pass-2026`.
+Demo credentials printed by the seed: `admin@aurumguard.demo / AdminDemo-Pass-2026`, `demo@aurumguard.demo / DemoUser-Pass-2026`.
 
 Frontend
 ```bash
