@@ -12,19 +12,50 @@ Rule-based **XAU/USD** (spot gold) analysis, risk management, paper trading and 
 - Backtests with walk-forward validation, Monte Carlo, cost and threshold sensitivity; strategies need recorded validation **and** a human approval to go live.
 
 ## Quick start
+
+Requirements: Python 3.11 or newer, Node.js 20 or newer. Use two terminals: one for the backend, one for the frontend.
+Run the backend commands from `aurumguard/backend` and the frontend commands from `aurumguard/frontend`.
+Running `npm` from any other folder picks up the older root `package.json` and fails with "Missing script".
+
+### Linux / macOS
 ```bash
-# backend
-cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-cp .env.example .env && .venv/bin/python -m app.seed --quick && .venv/bin/uvicorn app.main:app --port 8000
-# frontend
-cd ../frontend && npm ci && cp .env.example .env.local && npm run dev
+# terminal 1: backend
+cd aurumguard/backend
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+cp .env.example .env
+.venv/bin/python -m app.seed --quick      # creates demo users; prints the demo credentials
+.venv/bin/uvicorn app.main:app --port 8000
+
+# terminal 2: frontend
+cd aurumguard/frontend
+npm ci && cp .env.example .env.local
+npm run dev
 ```
-Open http://localhost:3000 — log in with the demo credentials printed by the seed. Or `docker compose up --build`.
+
+### Windows (cmd)
+```bat
+:: terminal 1: backend
+cd aurumguard\backend
+python -m venv .venv
+.venv\Scripts\pip install -r requirements-dev.txt
+copy .env.example .env
+.venv\Scripts\python -m app.seed --quick
+.venv\Scripts\uvicorn app.main:app --port 8000
+
+:: terminal 2: frontend
+cd aurumguard\frontend
+npm ci
+copy .env.example .env.local
+npm run dev
+```
+If `python` is not found, use `py -3.11` for the first command. In PowerShell replace `copy` with `Copy-Item`.
+
+Open http://localhost:3000 and log in with the demo credentials printed by the seed. Or `docker compose up --build`.
 
 ## Tests
 ```bash
-cd backend && .venv/bin/pytest -q            # 69 tests
-cd frontend && npm run typecheck && npm run lint && npm test && npx playwright test
+cd aurumguard/backend && .venv/bin/pytest -q            # 69 tests (Windows: .venv\Scripts\pytest -q)
+cd aurumguard/frontend && npm run typecheck && npm run lint && npm test && npx playwright test
 ```
 
 ## Documentation
