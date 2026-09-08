@@ -84,3 +84,7 @@ if __name__ == "__main__":
     import json
 
     print(json.dumps(res, indent=2, default=str))
+    print("\n[seed] DEMO logins (synthetic data, paper trading only):", flush=True)
+    for u in res.get("users", []):
+        print(f"[seed]   {u['role']:<5}  email: {u['email']:<28} password: {u['password']}", flush=True)
+    print("[seed] Open http://localhost:3000 after starting uvicorn on port 8000.", flush=True)

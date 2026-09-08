@@ -50,7 +50,14 @@ npm run dev
 ```
 If `python` is not found, use `py -3.11` for the first command. In PowerShell replace `copy` with `Copy-Item`.
 
-Open http://localhost:3000 and log in with the demo credentials printed by the seed. Or `docker compose up --build`.
+Open http://localhost:3000 and log in with the demo accounts the seed creates (also printed at the end of its output):
+
+| Role  | Email                    | Password            |
+|-------|--------------------------|---------------------|
+| admin | admin@aurumguard.local   | AdminDemo-Pass-2026 |
+| user  | demo@aurumguard.local    | DemoUser-Pass-2026  |
+
+These accounts exist only in your local demo database. Eight wrong passwords lock an account for 15 minutes. Or `docker compose up --build`.
 
 ## Tests
 ```bash
