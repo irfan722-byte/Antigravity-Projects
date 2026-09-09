@@ -28,9 +28,9 @@
 - Minute candles are outside the daily estimate: the paper engine fetches them once per run, but only
   while a position is open, an order is resting, or an expired setup is still to be scored. An idle
   account spends nothing on them; an active one adds one credit per run.
-- Read-only endpoints (`/api/regime`, `/api/market/snapshot`, decision preview) each build their own
-  snapshot and so spend a quote credit per call; the daily estimate covers the analysis loop only, and
-  several open pages add to it. The adapter keeps the combined rate under `TWELVEDATA_CREDITS_PER_MINUTE`
+- Read-only pages judge quote freshness against the adapter's cache lifetime, so polling them costs no
+  API credits; `/api/regime` reads stored decisions. Only the analysis loop and an explicit
+  evaluate-now demand a fresh quote. The adapter keeps the combined rate under `TWELVEDATA_CREDITS_PER_MINUTE`
   and collapses concurrent cold-cache fetches, waiting up to 20 s for a slot rather than taking a 429.
 - The analysis loop always requests a quote fresher than the integrity staleness limit (20 s), so the quote
   cache never answers it: quote credits scale with `ANALYSIS_INTERVAL_SECONDS`, not with the cache TTL. The

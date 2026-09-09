@@ -20,6 +20,20 @@ router = APIRouter(prefix="/market", tags=["market"])
 UTC = UTC
 
 
+def display_integrity(market) -> IntegrityConfig:
+    """Integrity limits for read-only pages, not for issuing setups.
+
+    A caching adapter serves the UI a quote up to its cache lifetime old on purpose. Judging a
+    display quote against the strict 20-second analysis limit both mislabels it as stale and, worse,
+    makes every page poll demand a fresh fetch: one browser tab on a 60-second poll spent about
+    1,440 API credits a day, well over the free tier on its own. The analysis loop keeps the strict
+    limit, because a setup must not be priced off a cached quote.
+    """
+    ttl = getattr(market, "quote_ttl_seconds", None)
+    cfg = IntegrityConfig()
+    return IntegrityConfig(quote_max_age_seconds=max(cfg.quote_max_age_seconds, float(ttl))) if ttl else cfg
+
+
 @router.get("/quote")
 def quote(request: Request, user: User = Depends(current_user)):
     ps = request.app.state.providers
@@ -28,13 +42,7 @@ def quote(request: Request, user: User = Depends(current_user)):
         q = ps.market.get_quote("XAUUSD", now)
     except ProviderError as exc:
         raise HTTPException(503, f"quote unavailable: {exc}") from exc
-    # A caching adapter (live provider) serves the UI a quote up to its cache lifetime old on purpose;
-    # judge staleness against that lifetime here. The analysis loop uses the strict limit.
-    ttl = getattr(ps.market, "quote_ttl_seconds", None)
-    cfg = IntegrityConfig()
-    if ttl:
-        cfg = IntegrityConfig(quote_max_age_seconds=max(cfg.quote_max_age_seconds, float(ttl)))
-    rep = validate_quote(q, now, cfg)
+    rep = validate_quote(q, now, display_integrity(ps.market))
     return {"instrument": "XAU/USD", "bid": q.bid, "ask": q.ask, "mid": round(q.mid, 2), "spread": round(q.spread, 2), "ts": q.ts, "provider": q.provider, "demo_data": ps.demo_mode, "integrity": rep.to_dict(), "market_state": market_state(now).value, "session": session_label(now), "user_timezone": user.settings.timezone}
 
 
@@ -70,7 +78,7 @@ def structure(request: Request, timeframe: str = Query("H1"), user: User = Depen
 def snapshot(request: Request, user: User = Depends(current_user)):
     ps = request.app.state.providers
     now = datetime.now(tz=UTC)
-    snap = build_snapshot(ps, now, user.settings.timezone)
+    snap = build_snapshot(ps, now, user.settings.timezone, integrity=display_integrity(ps.market))
     return {
         "as_of": snap.as_of,
         "demo_data": snap.demo_data,

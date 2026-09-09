@@ -101,3 +101,21 @@ def test_minute_candles_are_fetched_only_when_something_can_move():
     assert needs_m1(eng, []) is True  # a resting order can fill on a minute bar
     eng.orders["o1"].status = OrderStatus.CANCELLED
     assert needs_m1(eng, []) is False
+
+
+def test_display_pages_accept_a_cached_quote_instead_of_forcing_a_fetch():
+    """One open browser tab polling a page must not outspend the analysis loop."""
+    from app.api.routers.market import display_integrity
+    from app.core.integrity import IntegrityConfig
+
+    class Adapter:
+        quote_ttl_seconds = 300.0
+
+    strict = IntegrityConfig().quote_max_age_seconds
+    assert strict == 20.0
+    assert display_integrity(Adapter()).quote_max_age_seconds == 300.0  # serve the cache, spend nothing
+
+    class NoCache:
+        pass
+
+    assert display_integrity(NoCache()).quote_max_age_seconds == strict  # mock provider: unchanged
