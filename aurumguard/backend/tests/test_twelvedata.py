@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from app.check_provider import estimate_daily_credits, smallest_affordable_interval
+from app.check_provider import estimate_daily_credits, lookback_days, smallest_affordable_interval
 from app.config import Settings
 from app.core.candles import Timeframe
 from app.providers.base import ProviderError, RateLimited
@@ -161,3 +161,14 @@ def test_none_providers_return_nothing_and_are_wired_by_settings():
     assert all(h.ok for h in ps.health())
     assert any("EVENT AWARENESS DISABLED" in n for n in ps.calendar.health().notes)
     assert json.dumps(summary)  # serialisable for /api/meta
+
+
+def test_check_covers_every_timeframe_the_analysis_loop_uses():
+    now = datetime.now(tz=UTC)
+    fake = FakeTwelveData(bars_ending_at=now)
+    p = make(fake)
+    for tf in DEFAULT_TFS:
+        days = lookback_days(tf)
+        assert p.get_candles("XAUUSD", tf, now - timedelta(days=days), now), f"{tf.value} returned nothing"
+    assert p.request_count == len(DEFAULT_TFS)  # one credit per timeframe, no repeats
+    assert lookback_days(Timeframe.M5) == 2 and lookback_days(Timeframe.D1) == 301

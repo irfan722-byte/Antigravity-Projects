@@ -4,8 +4,9 @@ Run from ``aurumguard/backend`` with the same ``.env`` the server uses:
 
     python -m app.check_provider
 
-It fetches one quote and three candle batches, prints what came back, and
-estimates the daily API-credit usage for the configured analysis interval.
+It fetches one quote and one candle batch for every timeframe the analysis loop
+uses, prints what came back, and estimates the daily API-credit usage for the
+configured analysis interval. Cost: one credit per timeframe plus one.
 Exit code 0 means the provider answered correctly; 1 means it did not.
 """
 from __future__ import annotations
@@ -38,6 +39,11 @@ def estimate_daily_credits(interval_seconds: int, quote_max_age_seconds: float, 
     quotes = runs_per_day if quote_max_age_seconds < interval_seconds else 86400 / max(1.0, quote_max_age_seconds)
     candles = sum(min(runs_per_day, 86400 / tf.seconds) for tf in timeframes)
     return int(round(quotes + candles))
+
+
+def lookback_days(tf: Timeframe, bars: int = 300, cap: int = 400) -> int:
+    """Days of history needed for roughly ``bars`` bars of this timeframe."""
+    return min(cap, max(2, int(bars * tf.seconds / 86400) + 1))
 
 
 def smallest_affordable_interval(quote_max_age_seconds: float, timeframes: list[Timeframe], budget: int = FREE_TIER_CREDITS_PER_DAY) -> int | None:
@@ -77,7 +83,10 @@ def main() -> int:
         print(f"[check] quote FAILED: {exc}")
         ok = False
 
-    for tf, days in ((Timeframe.M5, 2), (Timeframe.H1, 20), (Timeframe.D1, 400)):
+    # Every timeframe the analysis loop uses, not a sample: an interval the provider spells
+    # differently (M15, H4) would otherwise only surface as DATA UNAVAILABLE after startup.
+    for tf in DEFAULT_TFS:
+        days = lookback_days(tf)
         try:
             t0 = time.perf_counter()
             candles = market.get_candles("XAUUSD", tf, now - timedelta(days=days), now)
