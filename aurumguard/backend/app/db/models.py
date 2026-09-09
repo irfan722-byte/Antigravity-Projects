@@ -1,5 +1,11 @@
 """Database schema. Every timestamp column is timezone-aware UTC.
 
+SQLite has no timestamp type and drops the offset, so ``DateTime(timezone=True)``
+reads back naive there and the API then serialises times without an offset -
+browsers read those as local time and every stored timestamp is shown wrong by
+the viewer's UTC offset. ``UtcDateTime`` below normalises on write and re-attaches
+UTC on read, so SQLite and PostgreSQL behave identically.
+
 Append-only tables: audit_log, decisions, notifications, paper_events. Rows in
 those tables are never updated after insert (enforced in the service layer and
 by the absence of update paths in the API)."""
@@ -7,10 +13,27 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, TypeDecorator, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
+
+
+class UtcDateTime(TypeDecorator):
+    """Timestamp that is always UTC-aware in Python, on every backend."""
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect) -> datetime | None:
+        if value is None:
+            return None
+        return value.astimezone(UTC) if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+    def process_result_value(self, value: datetime | None, dialect) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def _now() -> datetime:
@@ -26,12 +49,12 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16), default="user")  # user | admin
     mfa_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    disclosure_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    disclosure_accepted_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     failed_logins: Mapped[int] = mapped_column(Integer, default=0)
-    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    locked_until: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
     settings: Mapped[UserSettings] = relationship(back_populates="user", uselist=False)
 
@@ -47,8 +70,8 @@ class UserSettings(Base):
     horizons_enabled: Mapped[dict] = mapped_column(JSON, default=dict)
     locale: Mapped[str] = mapped_column(String(8), default="en")
     theme: Mapped[str] = mapped_column(String(8), default="system")
-    weekend_risk_ack_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+    weekend_risk_ack_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, onupdate=_now)
 
     user: Mapped[User] = relationship(back_populates="settings")
 
@@ -58,9 +81,9 @@ class RefreshToken(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     token_hash: Mapped[str] = mapped_column(String(128), unique=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
 
 class StrategyRecord(Base):
@@ -78,7 +101,7 @@ class StrategyRecord(Base):
     change_log: Mapped[list] = mapped_column(JSON, default=list)
     suspension_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     approval_note: Mapped[str] = mapped_column(Text, default="")
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, onupdate=_now)
 
 
 class DecisionRecord(Base):
@@ -89,15 +112,15 @@ class DecisionRecord(Base):
     status: Mapped[str] = mapped_column(String(24), index=True)
     strategy_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     strategy_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    as_of: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
     reason: Mapped[str] = mapped_column(Text)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
     regime: Mapped[str | None] = mapped_column(String(32), nullable=True)
     demo_data: Mapped[bool] = mapped_column(Boolean, default=True)
     setup: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     evidence: Mapped[dict] = mapped_column(JSON, default=dict)
-    expiry: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expiry: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
     __table_args__ = (Index("ix_decisions_user_horizon_asof", "user_id", "horizon", "as_of"),)
 
@@ -108,7 +131,7 @@ class DecisionOutcome(Base):
     __tablename__ = "decision_outcomes"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     decision_id: Mapped[str] = mapped_column(ForeignKey("decisions.id"), unique=True)
-    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    evaluated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
     outcome: Mapped[str] = mapped_column(String(24))  # TP1|TP2|STOP|EXPIRED|INVALIDATED|NOT_TAKEN
     max_favourable_excursion: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_adverse_excursion: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -127,8 +150,8 @@ class PaperOrderRecord(Base):
     lots: Mapped[float] = mapped_column(Float)
     status: Mapped[str] = mapped_column(String(16), index=True)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, onupdate=_now)
 
 
 class PaperPositionRecord(Base):
@@ -142,8 +165,8 @@ class PaperPositionRecord(Base):
     horizon: Mapped[str] = mapped_column(String(16), index=True)
     direction: Mapped[str] = mapped_column(String(4))
     status: Mapped[str] = mapped_column(String(8), index=True)
-    entry_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    exit_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    entry_ts: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
+    exit_ts: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     entry_price: Mapped[float] = mapped_column(Float)
     lots_initial: Mapped[float] = mapped_column(Float)
     lots_open: Mapped[float] = mapped_column(Float)
@@ -155,14 +178,14 @@ class PaperPositionRecord(Base):
     realised_pnl_usd: Mapped[float] = mapped_column(Float, default=0.0)
     exit_reason: Mapped[str | None] = mapped_column(String(24), nullable=True)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)  # fills, modifications, meta
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, onupdate=_now)
 
 
 class PaperEventRecord(Base):
     __tablename__ = "paper_events"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
-    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ts: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
     kind: Mapped[str] = mapped_column(String(32))
     ref_id: Mapped[str] = mapped_column(String(32))
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -178,11 +201,11 @@ class NotificationRecord(Base):
     title: Mapped[str] = mapped_column(String(200))
     body: Mapped[str] = mapped_column(Text)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, index=True)
     delivery_status: Mapped[str] = mapped_column(String(16), default="QUEUED")  # QUEUED|SENT|FAILED|THROTTLED|QUIET_HOURS|DEDUPED
     delivery_detail: Mapped[str] = mapped_column(Text, default="")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
-    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
     __table_args__ = (UniqueConstraint("user_id", "dedup_key", name="uq_notification_dedup"),)
 
@@ -194,8 +217,8 @@ class PushSubscription(Base):
     endpoint_hash: Mapped[str] = mapped_column(String(128), unique=True)
     subscription: Mapped[dict] = mapped_column(JSON)
     user_agent: Mapped[str] = mapped_column(String(255), default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    last_success: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    last_success: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     failures: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -205,7 +228,7 @@ class AuditLog(Base):
 
     __tablename__ = "audit_log"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+    ts: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, index=True)
     actor: Mapped[str] = mapped_column(String(64), index=True)  # user id | system | scheduler
     action: Mapped[str] = mapped_column(String(64), index=True)
     subject: Mapped[str] = mapped_column(String(128), default="")
@@ -226,8 +249,8 @@ class BacktestRun(Base):
     trades_hash: Mapped[str] = mapped_column(String(32), default="")
     requested_by: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(16), default="QUEUED")
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     result: Mapped[dict] = mapped_column(JSON, default=dict)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -239,8 +262,8 @@ class EconomicEventRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     event_id: Mapped[str] = mapped_column(String(64), index=True)
     provider: Mapped[str] = mapped_column(String(32))
-    scheduled_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    ingested_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    scheduled_ts: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
+    ingested_ts: Mapped[datetime] = mapped_column(UtcDateTime)
     payload: Mapped[dict] = mapped_column(JSON)
     __table_args__ = (Index("ix_econ_event_ingest", "event_id", "ingested_ts"),)
 
@@ -248,15 +271,15 @@ class EconomicEventRecord(Base):
 class ProviderHealthRecord(Base):
     __tablename__ = "provider_health"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+    ts: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, index=True)
     payload: Mapped[list] = mapped_column(JSON)
 
 
 class AnalysisRun(Base):
     __tablename__ = "analysis_runs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
-    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ts: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, index=True)
+    as_of: Mapped[datetime] = mapped_column(UtcDateTime)
     users: Mapped[int] = mapped_column(Integer, default=0)
     duration_ms: Mapped[float] = mapped_column(Float, default=0.0)
     data_status: Mapped[str] = mapped_column(String(16), default="VALID")

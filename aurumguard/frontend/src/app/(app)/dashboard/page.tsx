@@ -11,7 +11,7 @@ interface Perf { strategies: { id: string; status: string; paper: { trades?: num
 
 export default function Dashboard() {
   const { settings } = useApp(); const tz = settings?.timezone ?? "UTC";
-  const { data: q } = useApi<Quote>("/api/market/quote", 15000);
+  const { data: q, error: qErr } = useApi<Quote>("/api/market/quote", 15000);
   const { data: dec, error: e1 } = useApi<{ horizons: Record<string, Decision | null> }>("/api/decisions/latest", 30000);
   const { data: risk } = useApi<Risk>("/api/risk/status", 30000);
   const { data: cal } = useApi<{ events: CalendarEvent[] }>("/api/calendar?days_back=0&days_ahead=7", 60000);
@@ -23,9 +23,11 @@ export default function Dashboard() {
   const setups = feed?.items.filter((d) => d.setup) ?? [];
   const locks = risk ? Object.entries(risk.locks).filter(([k, v]) => k.endsWith("_locked") && v === true).map(([k]) => k.replace("_locked", "")) : [];
   const badProviders = health?.providers.filter((p) => !p.ok) ?? [];
+  const mockKinds = (health?.providers ?? []).filter((p) => p.is_mock).map((p) => p.kind.replace(/_/g, " "));
   return (
     <div>
       <h1 className="text-2xl font-bold mb-3">XAU/USD dashboard</h1>
+      <ErrorBox error={qErr} />
       <ErrorBox error={e1} />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <Kpi label="Bid / Ask" value={q ? `${fmtNum(q.bid)} / ${fmtNum(q.ask)}` : "…"} sub={q ? `spread ${fmtNum(q.spread)} · ${fmtTime(q.ts, tz, "en", false)}` : ""} />
@@ -49,7 +51,10 @@ export default function Dashboard() {
           <Link href="/risk" className="text-sm">Risk dashboard</Link>
         </Section>
         <Section title="Data health">
-          {health ? <p className="text-sm">{badProviders.length ? <span style={{ color: "var(--sell)" }}>Degraded: {badProviders.map((p) => `${p.kind}:${p.name}`).join(", ")}</span> : "All providers healthy"}{health.providers.some((p) => p.is_mock) ? " · mock providers active (DEMO)" : ""}</p> : <Loading />}
+          {health ? <p className="text-sm">{badProviders.length ? <span style={{ color: "var(--sell)" }}>Degraded: {badProviders.map((p) => `${p.kind}:${p.name}`).join(", ")}</span> : "All providers healthy"}
+            {/* Naming the synthetic feeds beats a blanket DEMO label: with live prices only some
+                providers are mock, and calling the whole system DEMO would be wrong. */}
+            {mockKinds.length ? <><br /><span className="muted">Synthetic: {mockKinds.join(", ")}</span></> : null}</p> : <Loading />}
           {q?.integrity?.issues?.length ? <ul className="text-xs muted">{q.integrity.issues.map((i) => <li key={i.code}>{i.severity} {i.code}: {i.message}</li>)}</ul> : null}
           <Link href="/data-health" className="text-sm">Provider health</Link>
         </Section>

@@ -11,6 +11,12 @@ describe("ui", () => {
     expect(screen.getByText(/waiting for trigger/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Evidence Inspector/ })).toHaveAttribute("href", "/evidence/abc");
   });
+  it("shows the reason on the compact dashboard card when there is no setup", () => {
+    // A bare DATA UNAVAILABLE badge tells the user nothing; the reason names the failing input.
+    const d: Decision = { decision_id: "abc", horizon: "SCALP", status: "DATA_UNAVAILABLE", strategy_id: null, strategy_version: null, as_of: "2026-03-10T10:00:00Z", reason: "M15 candles missing or invalid (CANDLES_STALE)", score: null, regime: null, demo_data: false, setup: null, expiry: null };
+    render(<DecisionCard d={d} tz="Asia/Dubai" compact />);
+    expect(screen.getByText(/CANDLES_STALE/)).toBeInTheDocument();
+  });
 });
 
 import { liveDataNotice } from "./Providers";

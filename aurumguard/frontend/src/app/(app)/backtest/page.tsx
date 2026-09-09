@@ -1,6 +1,6 @@
 "use client";
 import { FormEvent, useState } from "react";
-import { summarize } from "@/components/DataView";
+import { formatScalar, label, summarize } from "@/components/DataView";
 import { useApi } from "@/components/Providers";
 import { ErrorBox, Json, Loading, Section } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -12,7 +12,7 @@ export default function Backtest() {
   const { data: strats } = useApi<{ strategies: Strategy[] }>("/api/strategies");
   const { data: runs, refresh } = useApi<{ runs: Run[] }>("/api/backtests", 10000);
   const [sel, setSel] = useState<string | null>(null);
-  const { data: detail } = useApi<{ result: Record<string, unknown>; status: string }>(sel ? `/api/backtests/${sel}` : null, 0, [sel]);
+  const { data: detail, error: detailErr } = useApi<{ result: Record<string, unknown>; status: string }>(sel ? `/api/backtests/${sel}` : null, 0, [sel]);
   const [f, setF] = useState({ strategy_id: "PBC-H1", start: "2025-09-01T00:00:00+00:00", end: "2025-11-30T00:00:00+00:00", kind: "backtest", spread_multiplier: "1.0", slippage_multiplier: "1.0" });
   const [err, setErr] = useState<string | null>(null);
   async function submit(e: FormEvent) { e.preventDefault(); setErr(null); try { await api("/api/backtests", { method: "POST", body: { ...f, spread_multiplier: +f.spread_multiplier, slippage_multiplier: +f.slippage_multiplier } }); refresh(); } catch (ex) { setErr(ex instanceof Error ? ex.message : String(ex)); } }
@@ -32,8 +32,8 @@ export default function Backtest() {
       </form>
       <ErrorBox error={err} />
       <Section title="Runs">{!runs ? <Loading /> : <div className="scroll-x"><table className="table"><thead><tr><th>Run</th><th>Strategy</th><th>Kind</th><th>Data</th><th>Status</th><th>Summary</th><th>Trades hash</th></tr></thead><tbody>{runs.runs.map((x) => <tr key={x.run_id}><td><button className="btn py-0" onClick={() => setSel(x.run_id)}>{x.run_id.slice(0, 8)}</button></td><td>{x.strategy_id}</td><td>{x.kind}</td><td>{x.data_label}</td><td>{x.status}{x.error ? ` (${x.error.slice(0, 60)})` : ""}</td><td className="text-xs">{summarize(x.summary, undefined, 220)}</td><td className="text-xs">{x.trades_hash}</td></tr>)}</tbody></table></div>}</Section>
-      {sel && <Section title={`Run ${sel.slice(0, 8)}`}>{!detail ? <Loading /> : detail.status !== "DONE" ? <p>{detail.status}</p> : <>
-        {"trades" in m && <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm mb-2">{["trades", "win_rate", "expectancy_r", "profit_factor", "max_drawdown_usd", "net_usd", "costs_usd", "brier"].map((k) => <div key={k}><span className="muted">{k}</span><br />{String(m[k] ?? "–")}</div>)}</div>}
+      {sel && <Section title={`Run ${sel.slice(0, 8)}`}>{detailErr ? <ErrorBox error={detailErr} /> : !detail ? <Loading /> : detail.status !== "DONE" ? <p>{detail.status}</p> : <>
+        {"trades" in m && <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm mb-2">{["trades", "win_rate", "expectancy_r", "profit_factor", "max_drawdown_usd", "net_usd", "costs_usd", "brier"].map((k) => <div key={k}><span className="muted">{label(k)}</span><br />{formatScalar(m[k])}</div>)}</div>}
         {r?.acceptance_checklist ? <><h3 className="font-bold text-sm">Acceptance checklist (for human review)</h3><Json value={r.acceptance_checklist} /></> : null}
         {r?.threshold_sensitivity_oos ? <><h3 className="font-bold text-sm">Threshold sensitivity (OOS)</h3><Json value={r.threshold_sensitivity_oos} /></> : null}
         {r?.cost_sensitivity ? <><h3 className="font-bold text-sm">Cost sensitivity</h3><Json value={r.cost_sensitivity} /></> : null}

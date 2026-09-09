@@ -45,7 +45,10 @@ export function DecisionCard({ d, tz, compact = false }: { d: Decision | null; t
           <div><span className="muted">Strategy</span><br />{s.strategy_id} v{s.strategy_version}</div>
         </div>
       ) : null}
-      {!compact && <p className="mt-2 text-sm">{d.reason}</p>}
+      {/* The reason is the decision. A bare DATA UNAVAILABLE or NO TRADE badge with no
+          explanation is unusable, so it is shown even in the compact dashboard card whenever
+          there is no setup to describe. */}
+      {(!compact || !s) && d.reason ? <p className="mt-2 text-sm">{d.reason}</p> : null}
       {s?.conflicting_horizons?.length ? <p className="text-sm mt-1" style={{ color: "var(--sell)" }}>Conflicting direction on: {s.conflicting_horizons.join(", ")}</p> : null}
       <div className="mt-2 flex gap-3 text-sm"><Link href={`/setups/${d.decision_id}`}>Setup details</Link><Link href={`/evidence/${d.decision_id}`}>Evidence Inspector</Link></div>
     </article>
