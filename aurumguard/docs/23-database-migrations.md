@@ -1,0 +1,3 @@
+# 23 Database migrations
+
+Alembic with batch mode (SQLite-safe). Initial revision `a55d681388ec` creates all 16 tables and indexes; generated with `alembic revision --autogenerate` against the models and applied with `alembic upgrade head` (executed in this session against SQLite; CI applies it on every run). PostgreSQL: set `DATABASE_URL=postgresql+psycopg://…` and run `alembic upgrade head` before starting the API (`docker-compose.yml` does this). Rule: never edit an applied migration; add a new revision. Data migrations for JSON columns (risk limits, validation payloads) must be idempotent.

@@ -1,0 +1,39 @@
+{
+  "version": "risk-defaults-v1",
+  "note": "Low-risk educational defaults. Editable per user within bounds. Bounds are enforced server-side.",
+  "defaults": {
+    "account_equity": 10000.0,
+    "account_currency": "USD",
+    "risk_per_trade_pct": 0.5,
+    "max_daily_loss_pct": 1.5,
+    "max_weekly_loss_pct": 3.0,
+    "max_monthly_drawdown_pct": 6.0,
+    "max_concurrent_positions": 2,
+    "max_aggregate_open_risk_pct": 1.5,
+    "max_trades_per_day": 4,
+    "max_consecutive_losses": 3,
+    "max_spread_usd": 0.60,
+    "max_expected_slippage_usd": 0.30,
+    "min_net_reward_to_risk": 1.5,
+    "event_risk_preference": "avoid",
+    "daily_lockout_enabled": true,
+    "weekly_lockout_enabled": true,
+    "friday_cutoff_local": "20:00",
+    "friday_auto_close_paper": true,
+    "quiet_hours_start_local": "23:00",
+    "quiet_hours_end_local": "07:00"
+  },
+  "bounds": {
+    "risk_per_trade_pct": [0.1, 2.0],
+    "max_daily_loss_pct": [0.5, 5.0],
+    "max_weekly_loss_pct": [1.0, 10.0],
+    "max_monthly_drawdown_pct": [2.0, 20.0],
+    "max_concurrent_positions": [1, 5],
+    "max_aggregate_open_risk_pct": [0.5, 5.0],
+    "max_trades_per_day": [1, 10],
+    "max_consecutive_losses": [1, 10],
+    "max_spread_usd": [0.10, 2.00],
+    "max_expected_slippage_usd": [0.05, 1.00],
+    "min_net_reward_to_risk": [1.0, 5.0]
+  }
+}

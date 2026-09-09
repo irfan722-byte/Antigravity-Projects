@@ -1,0 +1,10 @@
+# 25 Automated tests
+
+Backend (`pytest`, 69 tests):
+- unit: time/session/DST/Friday cutoff, candles/resample/look-ahead guard, indicators, integrity (stale, duplicate, gap, out-of-order, invalid OHLC, zero/negative/extreme spread, future timestamps, outliers, weekend gap not flagged, cross-provider disagreement, delayed/early release), structure (params ranges, swings, trend, BOS, failed breakout, sweep, period levels), regime, scoring (correlation collapse, domination cap, direction mirror), gates (each failure mode), risk (defaults/bounds, floor-not-round, minimum contract skip, invalid stop side, incorrect contract spec, net R:R with costs, every lock), news state machine (phases, delayed, conflict, importance/currency filter, standardisation history, revision flag), paper engine (bid/ask/slippage fills, spread rejection, expiry, ordering, limit/stop orders, TP1 partial then TP2, conservative same-bar, gap through stop, time stop, Friday close, partial fills, out-of-order time, stop never widened), backtest (reproducible hash, point-in-time fills, threshold slicing monotonic, metrics, Monte Carlo, walk-forward embargo), calibration.
+- integration: snapshot builder point-in-time, decision engine across horizons, DATA UNAVAILABLE on injected provider failure, EVENT LOCKOUT on the mock NFP, risk lock blocking a produced setup (skipped when the synthetic window yields no confirmed setup).
+- API: register/login/refresh rotation/MFA gate, onboarding, risk-limit bounds, market endpoints, calculator limits, admin gating, approval without validation refused, analysis run idempotency, evidence inspector keys, export/delete.
+
+Frontend: vitest (format utils, status badge, decision card), Playwright smoke (welcome/disclosure, manifest, protected redirect).
+
+Not covered yet: load tests, real push delivery, real provider adapter, accessibility automation (axe), failure injection for Redis/DB reconnection (Redis is optional in the MVP; DB reconnection relies on `pool_pre_ping`).

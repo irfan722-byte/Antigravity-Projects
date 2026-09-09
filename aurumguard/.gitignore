@@ -1,0 +1,10 @@
+backend/.venv/
+backend/*.db
+backend/*.db-wal
+backend/*.db-shm
+backend/data/
+backend/.env
+frontend/.env
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/

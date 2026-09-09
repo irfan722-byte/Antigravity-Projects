@@ -1,0 +1,37 @@
+# Local/demo stack. Mock providers by default: no credentials needed. DEMO DATA banner is shown.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: aurumguard
+      POSTGRES_USER: aurumguard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aurumguard-dev-only}
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U aurumguard"], interval: 10s, timeout: 5s, retries: 10 }
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+  backend:
+    build: ./backend
+    env_file: [backend/.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://aurumguard:${POSTGRES_PASSWORD:-aurumguard-dev-only}@db:5432/aurumguard
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: http://localhost:3000
+    depends_on:
+      db: { condition: service_healthy }
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports: ["8000:8000"]
+    volumes: ["audit:/app/data/audit"]
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    environment:
+      API_INTERNAL_URL: http://backend:8000
+    depends_on: [backend]
+    ports: ["3000:3000"]
+volumes:
+  pgdata: {}
+  audit: {}

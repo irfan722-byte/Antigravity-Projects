@@ -1,0 +1,23 @@
+{
+  "version": "scoring-v0.1-research",
+  "status": "RESEARCH_DEFAULT_NOT_VALIDATED",
+  "note": "Starting research weights. Production threshold must be set per strategy from out-of-sample validation (see docs/14-signal-decision-framework.md). A score never creates a signal on its own; every hard gate must also pass.",
+  "family_weights": {
+    "technical": 0.20,
+    "structure": 0.20,
+    "intermarket_flow": 0.15,
+    "macro": 0.15,
+    "news_event": 0.10,
+    "liquidity_volatility_execution": 0.10,
+    "strategy_reliability": 0.10
+  },
+  "research_threshold": 75,
+  "min_independent_families_supporting": 3,
+  "max_single_family_share": 0.35,
+  "correlated_groups": [
+    ["rsi", "stochastic"],
+    ["ema_fast_slow", "sma_trend", "adx_direction"],
+    ["dxy", "eurusd_inverse", "usdjpy"],
+    ["us10y", "real_yield_proxy"]
+  ]
+}
