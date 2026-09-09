@@ -110,6 +110,7 @@ def main() -> int:
         print(f"[check] API requests used by this check: {used}")
     est = estimate_daily_credits(s.analysis_interval_seconds, IntegrityConfig().quote_max_age_seconds, DEFAULT_TFS)
     print(f"[check] estimated credits/day at ANALYSIS_INTERVAL_SECONDS={s.analysis_interval_seconds}: about {est} (Twelve Data free tier: {FREE_TIER_CREDITS_PER_DAY}/day, {FREE_TIER_CREDITS_PER_MINUTE}/minute)")
+    print(f"[check]   an open paper position or resting order adds one M1 fetch per run (about {int(86400 / max(1, s.analysis_interval_seconds))}/day)")
     if est > FREE_TIER_CREDITS_PER_DAY:
         fits = smallest_affordable_interval(IntegrityConfig().quote_max_age_seconds, DEFAULT_TFS)
         advice = f"Set ANALYSIS_INTERVAL_SECONDS to at least {fits} in .env" if fits else "Reduce the number of timeframes"

@@ -22,6 +22,7 @@ from ..core.setup import Decision, Horizon
 from ..core.strategies import build_strategies
 from ..core.timeutil import friday_cutoff_utc
 from ..db.models import AnalysisRun, DecisionOutcome, DecisionRecord, ProviderHealthRecord, User, UserSettings
+from ..paper.engine import OrderStatus
 from ..providers.registry import ProviderSet
 from . import audit, strategy_service
 from .bus import bus
@@ -37,6 +38,17 @@ def _limits(us: UserSettings) -> RiskLimits:
     base = RiskLimits.defaults().to_dict()
     base.update({k: v for k, v in (us.risk_limits or {}).items() if k in base})
     return RiskLimits(**base)
+
+
+def needs_m1(engine, pending_outcomes: list) -> bool:
+    """Whether minute candles can change anything this run.
+
+    They can only matter with an open position, a resting order, or an expired setup still to be
+    scored. Fetching them regardless cost an API credit per run on an idle account.
+    """
+    if engine.open_positions() or pending_outcomes:
+        return True
+    return any(o.status in (OrderStatus.PENDING, OrderStatus.PARTIAL) for o in engine.orders.values())
 
 
 class AnalysisService:
@@ -88,8 +100,13 @@ class AnalysisService:
         paper = PaperService(db, spec)
         glue = NotificationGlue(db, self.providers.push, user, us, self.settings)
         eng = paper.load_engine(user.id)
-        # 1. advance paper engine with M1 candles closed since the last step
-        m1 = snap.candles.get(Timeframe.M1) or self.providers.market.get_candles("XAUUSD", Timeframe.M1, now - timedelta(hours=6), now)
+        # 1. advance paper engine with M1 candles closed since the last step.
+        # M1 is not part of the snapshot, so this fetch costs an API credit on every run even when
+        # nothing can move - about 288 a day at a five-minute interval, enough on its own to push
+        # the free tier past its 800. Fetch only when there is an open position, a resting order,
+        # or an expired setup whose outcome is still to be recorded.
+        pending_outcomes = self._pending_outcomes(db, user.id, now)
+        m1 = snap.candles.get(Timeframe.M1) or (self.providers.market.get_candles("XAUUSD", Timeframe.M1, now - timedelta(hours=6), now) if needs_m1(eng, pending_outcomes) else [])
         last = self._last_m1.get(user.id) or (eng._last_ts or now - timedelta(hours=6))
         new_m1 = [c for c in m1 if c.complete and c.end_ts > last]
         notable = paper.step(user.id, eng, new_m1, snap.quote)
@@ -142,7 +159,7 @@ class AnalysisService:
         # 6. Friday workflow
         n_notif += self._friday(db, user, us, limits, paper, eng, snap, now, glue)
         # 7. outcomes for expired decisions
-        self._record_outcomes(db, user.id, snap, now)
+        self._record_outcomes(db, pending_outcomes, m1)
         return {"decisions": n_dec, "notifications": n_notif}
 
     def _persist_decision(self, db: Session, user_id: str, d: Decision) -> None:
@@ -172,12 +189,15 @@ class AnalysisService:
             self._friday_done[key] = "closed"
         return n
 
-    def _record_outcomes(self, db: Session, user_id: str, snap: MarketSnapshot, now: datetime) -> None:
+    def _pending_outcomes(self, db: Session, user_id: str, now: datetime) -> list[DecisionRecord]:
+        """Expired setups whose outcome has not been scored yet."""
         rows = db.query(DecisionRecord).filter(DecisionRecord.user_id == user_id, DecisionRecord.status.in_(["BUY_SETUP", "SELL_SETUP"]), DecisionRecord.expiry.isnot(None), DecisionRecord.expiry <= now).all()
-        m1 = snap.candles.get(Timeframe.M1) or []
+        return [r for r in rows if not db.query(DecisionOutcome).filter(DecisionOutcome.decision_id == r.id).first()]
+
+    def _record_outcomes(self, db: Session, rows: list[DecisionRecord], m1: list) -> None:
+        # M1 is passed in rather than read from the snapshot: the snapshot never carries it, so
+        # this silently recorded nothing whenever the paper engine had not already fetched it.
         for r in rows:
-            if db.query(DecisionOutcome).filter(DecisionOutcome.decision_id == r.id).first():
-                continue
             s = r.setup or {}
             window = [c for c in m1 if r.as_of.replace(tzinfo=UTC) <= c.ts <= r.expiry.replace(tzinfo=UTC)]
             if not window:

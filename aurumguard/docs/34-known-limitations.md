@@ -25,6 +25,9 @@
   intermarket evidence family should be read as placeholder in live mode.
 - Free-tier budget (about 800 credits/day) requires `ANALYSIS_INTERVAL_SECONDS=300`; the UI shows a quote
   up to `TWELVEDATA_QUOTE_TTL_SECONDS` old on purpose and flags it as such.
+- Minute candles are outside the daily estimate: the paper engine fetches them once per run, but only
+  while a position is open, an order is resting, or an expired setup is still to be scored. An idle
+  account spends nothing on them; an active one adds one credit per run.
 - Read-only endpoints (`/api/regime`, `/api/market/snapshot`, decision preview) each build their own
   snapshot and so spend a quote credit per call; the daily estimate covers the analysis loop only, and
   several open pages add to it. The adapter keeps the combined rate under `TWELVEDATA_CREDITS_PER_MINUTE`

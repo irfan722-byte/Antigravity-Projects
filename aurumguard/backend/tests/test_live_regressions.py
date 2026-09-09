@@ -83,3 +83,21 @@ def test_responses_render_a_non_finite_number_as_null():
     assert _json_safe(payload) == {"buckets": [{"profit_factor": None}, {"profit_factor": 1.5}], "brier": None, "id": "a1"}
     body = SafeJSONResponse(payload).render(payload)
     assert b'"profit_factor":null' in body.replace(b", ", b",") and json.loads(body)["buckets"][1]["profit_factor"] == 1.5
+
+
+def test_minute_candles_are_fetched_only_when_something_can_move():
+    """An idle account fetched M1 every run: ~288 credits a day that the budget never counted."""
+    from app.core.contract_spec import MOCK_SPEC
+    from app.paper.engine import OrderStatus, PaperEngine
+    from app.services.analysis import needs_m1
+
+    eng = PaperEngine(MOCK_SPEC, 10000.0)
+    assert needs_m1(eng, []) is False  # nothing open, nothing resting, nothing to score
+    assert needs_m1(eng, [object()]) is True  # an expired setup still needs its outcome
+
+    order = next(iter(eng.orders.values()), None)
+    assert order is None
+    eng.orders["o1"] = type("O", (), {"status": OrderStatus.PENDING})()
+    assert needs_m1(eng, []) is True  # a resting order can fill on a minute bar
+    eng.orders["o1"].status = OrderStatus.CANCELLED
+    assert needs_m1(eng, []) is False
