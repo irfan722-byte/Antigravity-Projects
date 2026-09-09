@@ -15,6 +15,9 @@ analysis loop would spend (1 quote + 5 timeframes) credits per run, about
 * caches the quote for ``quote_ttl_seconds`` so browser polling never reaches
   the provider, while the analysis loop asks for a fresher quote via
   ``max_age`` (the integrity engine's staleness limit).
+* holds itself under ``credits_per_minute`` and collapses concurrent cold-cache
+  fetches into one request, so the scheduler thread and the pages a user has open
+  cannot together provoke a 429 - which surfaces as DATA UNAVAILABLE everywhere.
 
 Approximate daily usage at ANALYSIS_INTERVAL_SECONDS=300: 288 quotes plus
 about 415 candle refreshes, roughly 700 credits. At 60 s: about 1,850, which
@@ -28,7 +31,9 @@ integrity engine flag QUOTE_ZERO_SPREAD instead.
 """
 from __future__ import annotations
 
+import threading
 import time as _time
+from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -97,6 +102,8 @@ class TwelveDataProvider(MarketDataProvider):
         quote_ttl_seconds: float = 300.0,
         assumed_spread_usd: float = 0.30,
         symbol: str = "XAU/USD",
+        credits_per_minute: int = FREE_TIER_CREDITS_PER_MINUTE,
+        max_rate_wait_seconds: float = 20.0,
         ca_bundle: str | None = None,
         trust_mode: str = "auto",
         transport: httpx.BaseTransport | None = None,
@@ -110,6 +117,8 @@ class TwelveDataProvider(MarketDataProvider):
         self.quote_ttl_seconds = float(quote_ttl_seconds)
         self.assumed_spread_usd = max(0.0, float(assumed_spread_usd))
         self.symbol = symbol
+        self.credits_per_minute = int(credits_per_minute)
+        self.max_rate_wait_seconds = float(max_rate_wait_seconds)
         # Verification stays on; only the source of trusted roots is configurable (see core/tls.py).
         self.trust = "injected transport" if transport is not None else trust_source(ca_bundle, trust_mode)
         verify = True if transport is not None else build_ssl_verify(ca_bundle, trust_mode)
@@ -121,14 +130,50 @@ class TwelveDataProvider(MarketDataProvider):
         self._quote: Quote | None = None
         self._candles: dict[Timeframe, _CandleCache] = {}
         self.request_count = 0
+        # The analysis loop runs in a scheduler thread while request threads serve pages; both
+        # reach this adapter. The budget keeps their combined rate inside the plan's per-minute
+        # allowance, and the fetch locks collapse a cold-cache stampede into a single request.
+        self._rate_lock = threading.Lock()
+        self._request_times: deque[float] = deque()
+        self._quote_lock = threading.Lock()
+        self._tf_locks: dict[Timeframe, threading.Lock] = {tf: threading.Lock() for tf in _TF_MAP}
 
     # ------------------------------------------------------------------ http --
+    def _reserve_slot(self) -> None:
+        """Block until this request fits the per-minute allowance, or refuse it.
+
+        Twelve Data answers HTTP 429 once the minute's credits are gone, and on the free plan
+        (8/minute) a cold start can ask for more: the analysis loop wants a quote plus five
+        timeframes while the dashboard asks for a regime and a snapshot at the same time. Waiting
+        a few seconds costs nothing; a 429 costs the whole evaluation, which then reads as
+        DATA UNAVAILABLE on every horizon.
+        """
+        if self.credits_per_minute <= 0:
+            return
+        deadline = _time.monotonic() + self.max_rate_wait_seconds
+        while True:
+            with self._rate_lock:
+                now = _time.monotonic()
+                while self._request_times and now - self._request_times[0] >= 60.0:
+                    self._request_times.popleft()
+                if len(self._request_times) < self.credits_per_minute:
+                    self._request_times.append(now)
+                    return
+                wait = 60.0 - (now - self._request_times[0])
+            if _time.monotonic() + wait > deadline:
+                raise RateLimited(
+                    f"local rate limit: {self.credits_per_minute} requests already used this minute; "
+                    f"the next slot is {wait:.0f}s away. Raise ANALYSIS_INTERVAL_SECONDS, open fewer pages, or use a paid plan."
+                )
+            _time.sleep(min(wait, 1.0))
+
     def _get(self, path: str, params: dict) -> dict:
         params = params | {"apikey": self.api_key, "format": "JSON"}
         delay = 1.0
         for attempt in range(self.max_retries):
             t0 = _time.perf_counter()
             try:
+                self._reserve_slot()
                 r = self._client.get(f"/{path}", params=params)
                 self.request_count += 1  # a response came back, so a credit was spent
                 self._latency = (_time.perf_counter() - t0) * 1000
@@ -206,23 +251,45 @@ class TwelveDataProvider(MarketDataProvider):
         start, end = ensure_utc(start), ensure_utc(end)
         if timeframe not in _TF_MAP:
             raise ProviderError(f"timeframe {timeframe.value} not supported by twelvedata adapter")
+
+        def stale(e: _CandleCache | None) -> bool:
+            if e is None:
+                return True
+            wider = start < e.window_start - timeframe.delta
+            new_bar = _bar_floor(end, timeframe) > _bar_floor(e.fetched_at, timeframe)
+            return wider or new_bar
+
         entry = self._candles.get(timeframe)
-        needs_wider_window = entry is not None and start < entry.window_start - timeframe.delta
-        new_bar_started = entry is not None and _bar_floor(end, timeframe) > _bar_floor(entry.fetched_at, timeframe)
-        if entry is None or needs_wider_window or new_bar_started:
-            window_start = min(start, entry.window_start) if entry else start
-            candles = self._fetch_candles(timeframe, window_start, end)
-            entry = _CandleCache(candles, window_start, datetime.now(tz=UTC))
-            self._candles[timeframe] = entry
+        if stale(entry):
+            with self._tf_locks[timeframe]:
+                # Re-read: while we waited another thread may have fetched this timeframe. Without
+                # this every concurrent caller pays a credit for the same bars on a cold start.
+                entry = self._candles.get(timeframe)
+                if stale(entry):
+                    window_start = min(start, entry.window_start) if entry else start
+                    candles = self._fetch_candles(timeframe, window_start, end)
+                    entry = _CandleCache(candles, window_start, datetime.now(tz=UTC))
+                    self._candles[timeframe] = entry
         return [c for c in entry.candles if start <= c.ts <= end]
 
     # ----------------------------------------------------------------- quote --
     def get_quote(self, instrument: str, now: datetime, max_age: float | None = None) -> Quote:
         now = ensure_utc(now)
         ttl = self.quote_ttl_seconds if max_age is None else min(self.quote_ttl_seconds, float(max_age))
+        # Only age matters. A cached quote stamped at or after the caller's ``now`` was fetched
+        # during this very evaluation and is fresher than asked for; rejecting it made every
+        # concurrent caller pay a credit for the same price. A genuinely future timestamp is a
+        # provider fault, and validate_quote reports it as QUOTE_FUTURE_TS.
         cached = self._quote
-        if cached is not None and 0 <= (now - cached.ts).total_seconds() < ttl:
+        if cached is not None and (now - cached.ts).total_seconds() < ttl:
             return cached
+        with self._quote_lock:
+            cached = self._quote  # another thread may have refreshed it while we waited
+            if cached is not None and (now - cached.ts).total_seconds() < ttl:
+                return cached
+            return self._fetch_quote()
+
+    def _fetch_quote(self) -> Quote:
         data = self._get("price", {"symbol": self.symbol})
         try:
             px = float(data["price"])

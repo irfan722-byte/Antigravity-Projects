@@ -25,6 +25,10 @@
   intermarket evidence family should be read as placeholder in live mode.
 - Free-tier budget (about 800 credits/day) requires `ANALYSIS_INTERVAL_SECONDS=300`; the UI shows a quote
   up to `TWELVEDATA_QUOTE_TTL_SECONDS` old on purpose and flags it as such.
+- Read-only endpoints (`/api/regime`, `/api/market/snapshot`, decision preview) each build their own
+  snapshot and so spend a quote credit per call; the daily estimate covers the analysis loop only, and
+  several open pages add to it. The adapter keeps the combined rate under `TWELVEDATA_CREDITS_PER_MINUTE`
+  and collapses concurrent cold-cache fetches, waiting up to 20 s for a slot rather than taking a 429.
 - The analysis loop always requests a quote fresher than the integrity staleness limit (20 s), so the quote
   cache never answers it: quote credits scale with `ANALYSIS_INTERVAL_SECONDS`, not with the cache TTL. The
   shortest interval that fits the free tier with the five default timeframes is 225 s.

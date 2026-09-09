@@ -6,6 +6,7 @@ separately with `python -m app.check_provider`.
 from __future__ import annotations
 
 import json
+import threading
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -172,3 +173,58 @@ def test_check_covers_every_timeframe_the_analysis_loop_uses():
         assert p.get_candles("XAUUSD", tf, now - timedelta(days=days), now), f"{tf.value} returned nothing"
     assert p.request_count == len(DEFAULT_TFS)  # one credit per timeframe, no repeats
     assert lookback_days(Timeframe.M5) == 2 and lookback_days(Timeframe.D1) == 301
+
+
+def test_requests_stay_inside_the_per_minute_allowance():
+    fake = FakeTwelveData()
+    p = TwelveDataProvider("k", transport=httpx.MockTransport(fake.handler), credits_per_minute=2, max_rate_wait_seconds=0.0)
+    now = datetime.now(tz=UTC)
+    p.get_quote("XAUUSD", now, max_age=0)
+    p.get_candles("XAUUSD", Timeframe.M5, now - timedelta(hours=1), now)
+    assert p.request_count == 2
+    with pytest.raises(RateLimited, match="local rate limit"):
+        p.get_candles("XAUUSD", Timeframe.H1, now - timedelta(days=2), now)
+    assert p.request_count == 2  # the third request was never sent, so no 429 and no wasted credit
+    assert len(fake.calls) == 2
+
+
+def test_a_cold_start_does_not_stampede_the_provider():
+    """Scheduler thread and page requests hit an empty cache together: one fetch per timeframe."""
+    now = datetime.now(tz=UTC)
+    fake = FakeTwelveData(bars_ending_at=now)
+    slow = threading.Event()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        slow.wait(0.5)  # hold the first caller inside the fetch so the others pile up behind it
+        return fake.handler(request)
+
+    p = TwelveDataProvider("k", transport=httpx.MockTransport(handler), credits_per_minute=0)
+    errors: list[BaseException] = []
+
+    def work():
+        try:
+            p.get_quote("XAUUSD", now, max_age=20)  # what the analysis loop asks for
+            for tf in (Timeframe.M5, Timeframe.M15, Timeframe.H1):
+                p.get_candles("XAUUSD", tf, now - timedelta(days=3), now)
+        except BaseException as exc:  # noqa: BLE001 - surfaced below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=work) for _ in range(4)]
+    for t in threads:
+        t.start()
+    slow.set()
+    for t in threads:
+        t.join(10)
+    assert not errors
+    assert p.request_count == 4  # one quote + three timeframes, not 4 x 4
+
+
+def test_a_quote_fetched_during_this_evaluation_is_reused():
+    """build_snapshot stamps `now`, then fetches; the result is newer than `now` and must count as fresh."""
+    fake = FakeTwelveData()
+    p = make(fake)
+    now = datetime.now(tz=UTC)
+    first = p.get_quote("XAUUSD", now, max_age=20)
+    assert first.ts >= now  # ingested after the caller took its timestamp
+    assert p.get_quote("XAUUSD", now, max_age=20) is first
+    assert p.request_count == 1

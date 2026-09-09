@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # assumption because the price endpoint is mid-only; 0 reports a zero spread and flags it.
     twelvedata_quote_ttl_seconds: float = 300.0
     twelvedata_assumed_spread_usd: float = 0.30
+    # Free plan allows 8 requests/minute. The adapter holds itself under this and waits briefly
+    # for a slot rather than taking a 429, which would read as DATA UNAVAILABLE on every horizon.
+    twelvedata_credits_per_minute: int = 8
 
     # --- outbound TLS trust (see app/core/tls.py) ---
     # Python verifies HTTPS against certifi, not the OS store, so a machine whose antivirus or

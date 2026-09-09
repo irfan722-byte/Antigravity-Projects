@@ -65,6 +65,7 @@ def build_providers(settings: Settings) -> ProviderSet:
             settings.twelvedata_api_key or "",
             quote_ttl_seconds=settings.twelvedata_quote_ttl_seconds,
             assumed_spread_usd=settings.twelvedata_assumed_spread_usd,
+            credits_per_minute=settings.twelvedata_credits_per_minute,
             ca_bundle=settings.https_ca_bundle,
             trust_mode=settings.https_trust,
         )
