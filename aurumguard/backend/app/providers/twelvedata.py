@@ -36,6 +36,7 @@ import httpx
 
 from ..core.candles import Candle, Quote, Timeframe
 from ..core.timeutil import ensure_utc
+from ..core.tls import CERT_VERIFY_HINT, build_ssl_verify, is_cert_verify_error, trust_source
 from .base import MarketDataProvider, ProviderDoc, ProviderError, ProviderHealth, RateLimited
 
 UTC = UTC
@@ -96,6 +97,8 @@ class TwelveDataProvider(MarketDataProvider):
         quote_ttl_seconds: float = 300.0,
         assumed_spread_usd: float = 0.30,
         symbol: str = "XAU/USD",
+        ca_bundle: str | None = None,
+        trust_mode: str = "auto",
         transport: httpx.BaseTransport | None = None,
     ):
         if not api_key:
@@ -107,7 +110,10 @@ class TwelveDataProvider(MarketDataProvider):
         self.quote_ttl_seconds = float(quote_ttl_seconds)
         self.assumed_spread_usd = max(0.0, float(assumed_spread_usd))
         self.symbol = symbol
-        self._client = httpx.Client(base_url=self.base_url, timeout=timeout, transport=transport)
+        # Verification stays on; only the source of trusted roots is configurable (see core/tls.py).
+        self.trust = "injected transport" if transport is not None else trust_source(ca_bundle, trust_mode)
+        verify = True if transport is not None else build_ssl_verify(ca_bundle, trust_mode)
+        self._client = httpx.Client(base_url=self.base_url, timeout=timeout, transport=transport, verify=verify)
         self._last_ok: datetime | None = None
         self._last_error: str | None = None
         self._failures = 0
@@ -123,8 +129,8 @@ class TwelveDataProvider(MarketDataProvider):
         for attempt in range(self.max_retries):
             t0 = _time.perf_counter()
             try:
-                self.request_count += 1
                 r = self._client.get(f"/{path}", params=params)
+                self.request_count += 1  # a response came back, so a credit was spent
                 self._latency = (_time.perf_counter() - t0) * 1000
                 if r.status_code == 429:
                     raise RateLimited("rate limited (HTTP 429): API credits exhausted for this minute or day")
@@ -145,6 +151,10 @@ class TwelveDataProvider(MarketDataProvider):
             except (httpx.HTTPError, ProviderError, ValueError) as exc:
                 self._failures += 1
                 self._last_error = str(exc)
+                if is_cert_verify_error(exc):
+                    # Deterministic: the same certificate fails every time, so retrying only wastes time.
+                    self._last_error = f"TLS certificate verification failed for {self.base_url}. {CERT_VERIFY_HINT}"
+                    raise ProviderError(self._last_error) from exc
                 if attempt == self.max_retries - 1:
                     raise ProviderError(f"twelvedata request failed: {exc}") from exc
                 _time.sleep(delay)
@@ -253,5 +263,6 @@ class TwelveDataProvider(MarketDataProvider):
                 "LIVE PRICES via Twelve Data; verify the key with `python -m app.check_provider`",
                 spread_note,
                 f"quote cache {self.quote_ttl_seconds:.0f}s; candle cache [{cached}]; API requests this process: {self.request_count}",
+                f"HTTPS trust: {self.trust}",
             ],
         )

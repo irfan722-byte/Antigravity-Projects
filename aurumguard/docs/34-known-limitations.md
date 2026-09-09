@@ -25,3 +25,10 @@
   intermarket evidence family should be read as placeholder in live mode.
 - Free-tier budget (about 800 credits/day) requires `ANALYSIS_INTERVAL_SECONDS=300`; the UI shows a quote
   up to `TWELVEDATA_QUOTE_TTL_SECONDS` old on purpose and flags it as such.
+- The analysis loop always requests a quote fresher than the integrity staleness limit (20 s), so the quote
+  cache never answers it: quote credits scale with `ANALYSIS_INTERVAL_SECONDS`, not with the cache TTL. The
+  shortest interval that fits the free tier with the five default timeframes is 225 s.
+- Outbound HTTPS is verified against the OS certificate store when `truststore` is installed (`HTTPS_TRUST=auto`,
+  the default) and against certifi otherwise. On a machine that inspects TLS, provider calls fail with
+  `CERTIFICATE_VERIFY_FAILED` until the inspecting root is trusted; `HTTPS_CA_BUNDLE` accepts an explicit PEM.
+  Verification is never disabled, so such a machine cannot use live prices without trusting that root.

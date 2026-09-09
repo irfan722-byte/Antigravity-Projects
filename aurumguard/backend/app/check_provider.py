@@ -16,19 +16,36 @@ from datetime import UTC, datetime, timedelta
 
 from .config import get_settings
 from .core.candles import Timeframe
-from .core.integrity import validate_quote
+from .core.integrity import IntegrityConfig, validate_quote
+from .core.tls import CERT_VERIFY_HINT, describe_peer_issuer
 from .providers.base import ProviderError
 from .providers.registry import build_providers
+from .providers.twelvedata import FREE_TIER_CREDITS_PER_DAY, FREE_TIER_CREDITS_PER_MINUTE
 from .services.snapshot import DEFAULT_TFS
 
 UTC = UTC
 
 
-def estimate_daily_credits(interval_seconds: int, quote_ttl_seconds: float, timeframes: list[Timeframe]) -> int:
+def estimate_daily_credits(interval_seconds: int, quote_max_age_seconds: float, timeframes: list[Timeframe]) -> int:
+    """Credits the analysis loop spends per day.
+
+    One quote per run: the loop asks for a quote no older than the integrity engine's staleness
+    limit (20 s by default), which is shorter than the adapter's quote cache, so the cache never
+    answers it. Browser polling is free because it accepts the cached quote. Candles cost one
+    credit per timeframe per bar close, capped at one per run.
+    """
     runs_per_day = 86400 / max(1, interval_seconds)
-    quotes = 86400 / max(float(interval_seconds), quote_ttl_seconds)
+    quotes = runs_per_day if quote_max_age_seconds < interval_seconds else 86400 / max(1.0, quote_max_age_seconds)
     candles = sum(min(runs_per_day, 86400 / tf.seconds) for tf in timeframes)
     return int(round(quotes + candles))
+
+
+def smallest_affordable_interval(quote_max_age_seconds: float, timeframes: list[Timeframe], budget: int = FREE_TIER_CREDITS_PER_DAY) -> int | None:
+    """Shortest analysis interval (rounded to 15 s) that stays inside the daily credit budget."""
+    for interval in range(15, 3601, 15):
+        if estimate_daily_credits(interval, quote_max_age_seconds, timeframes) <= budget:
+            return interval
+    return None
 
 
 def main() -> int:
@@ -46,6 +63,7 @@ def main() -> int:
 
     ps = build_providers(s)
     market = ps.market
+    print(f"[check] HTTPS trust: {getattr(market, 'trust', 'certifi bundle')}")
     now = datetime.now(tz=UTC)
     ok = True
 
@@ -81,11 +99,19 @@ def main() -> int:
     used = getattr(market, "request_count", None)
     if used is not None:
         print(f"[check] API requests used by this check: {used}")
-    ttl = float(getattr(market, "quote_ttl_seconds", s.analysis_interval_seconds))
-    est = estimate_daily_credits(s.analysis_interval_seconds, ttl, DEFAULT_TFS)
-    print(f"[check] estimated credits/day at ANALYSIS_INTERVAL_SECONDS={s.analysis_interval_seconds}: about {est} (Twelve Data free tier: 800/day, 8/minute)")
-    if est > 800:
-        print("[check]   above the free tier: raise ANALYSIS_INTERVAL_SECONDS to 300 or use a paid plan")
+    est = estimate_daily_credits(s.analysis_interval_seconds, IntegrityConfig().quote_max_age_seconds, DEFAULT_TFS)
+    print(f"[check] estimated credits/day at ANALYSIS_INTERVAL_SECONDS={s.analysis_interval_seconds}: about {est} (Twelve Data free tier: {FREE_TIER_CREDITS_PER_DAY}/day, {FREE_TIER_CREDITS_PER_MINUTE}/minute)")
+    if est > FREE_TIER_CREDITS_PER_DAY:
+        fits = smallest_affordable_interval(IntegrityConfig().quote_max_age_seconds, DEFAULT_TFS)
+        advice = f"Set ANALYSIS_INTERVAL_SECONDS to at least {fits} in .env" if fits else "Reduce the number of timeframes"
+        print(f"[check]   ABOVE THE FREE TIER: the feed would stop part-way through the day. {advice}, or use a paid plan.")
+    if not ok and "certificate verification failed" in (h.last_error or "").lower():
+        print("[check] The key was never used: the connection failed before the request was sent.")
+        issuer = describe_peer_issuer("api.twelvedata.com")
+        if issuer:
+            print(f"[check] The certificate this machine is served comes from: {issuer}")
+        for line in CERT_VERIFY_HINT.split("; "):
+            print(f"[check]   {line}")
     print("[check] RESULT: OK" if ok else "[check] RESULT: FAILED")
     return 0 if ok else 1
 

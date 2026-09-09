@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from app.check_provider import estimate_daily_credits
+from app.check_provider import estimate_daily_credits, smallest_affordable_interval
 from app.config import Settings
 from app.core.candles import Timeframe
 from app.providers.base import ProviderError, RateLimited
@@ -139,8 +139,13 @@ def test_bar_floor_week_starts_monday():
 
 
 def test_free_tier_budget_estimate():
-    assert 600 < estimate_daily_credits(300, 300.0, DEFAULT_TFS) < FREE_TIER_CREDITS_PER_DAY
-    assert estimate_daily_credits(60, 60.0, DEFAULT_TFS) > FREE_TIER_CREDITS_PER_DAY
+    # The analysis loop demands a quote fresher than the adapter's cache (max_age = the integrity
+    # staleness limit), so it costs one credit per run however long the quote cache is.
+    assert 600 < estimate_daily_credits(300, 20.0, DEFAULT_TFS) < FREE_TIER_CREDITS_PER_DAY
+    assert estimate_daily_credits(60, 20.0, DEFAULT_TFS) > 1800  # the default 60 s interval does not fit
+    fits = smallest_affordable_interval(20.0, DEFAULT_TFS)
+    assert fits is not None and estimate_daily_credits(fits, 20.0, DEFAULT_TFS) <= FREE_TIER_CREDITS_PER_DAY
+    assert estimate_daily_credits(fits - 15, 20.0, DEFAULT_TFS) > FREE_TIER_CREDITS_PER_DAY
 
 
 def test_none_providers_return_nothing_and_are_wired_by_settings():

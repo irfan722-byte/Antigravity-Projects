@@ -18,3 +18,4 @@ slowapi==0.1.10
 psycopg[binary]==3.3.5
 email-validator==2.3.0
 tzdata==2026.3                     # IANA zone database for zoneinfo on Windows (Linux/macOS use the OS copy)
+truststore==0.10.4                 # verify HTTPS against the OS certificate store (antivirus/proxy TLS inspection)

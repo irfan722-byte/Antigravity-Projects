@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     twelvedata_quote_ttl_seconds: float = 300.0
     twelvedata_assumed_spread_usd: float = 0.30
 
+    # --- outbound TLS trust (see app/core/tls.py) ---
+    # Python verifies HTTPS against certifi, not the OS store, so a machine whose antivirus or
+    # company proxy inspects TLS fails with CERTIFICATE_VERIFY_FAILED even though the browser works.
+    # "auto" trusts the OS store when `truststore` is installed; "certifi" forces the bundled roots.
+    https_trust: Literal["auto", "certifi"] = "auto"
+    https_ca_bundle: str | None = None
+
     # --- push (VAPID) ---
     vapid_public_key: str | None = None
     vapid_private_key: str | None = None

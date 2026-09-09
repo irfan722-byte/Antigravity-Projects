@@ -75,13 +75,33 @@ disabled; this only changes where prices come from.
    ANALYSIS_INTERVAL_SECONDS=300 # free tier: ~700 credits/day; 60 needs a paid plan
    ```
 3. Verify the key before starting the server: `python -m app.check_provider` (Windows: `.venv\Scripts\python -m app.check_provider`).
-   It prints one quote, three candle batches and the estimated daily credit usage, and exits non-zero on failure.
+   It prints where HTTPS trust comes from, one quote, three candle batches and the estimated daily credit
+   usage, and exits non-zero on failure. Run it again after changing `.env`.
 4. Start uvicorn. The red DEMO banner is replaced by an amber banner that names the live source and every
    input that is still synthetic (macro series, positioning, ETF flows) or disabled (calendar, news).
 
 What live mode does **not** give you: observed bid/ask (the quote endpoint is mid-only, so the spread is a
 configurable cost assumption, `TWELVEDATA_ASSUMED_SPREAD_USD`), real economic-event awareness, or real
 intermarket data. Treat setups produced in this mode as a plumbing test on real prices, not as validated signals.
+
+### `CERTIFICATE_VERIFY_FAILED` when checking the provider
+
+```
+[check] quote FAILED: twelvedata request failed: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed
+```
+
+The API key is fine - the connection failed before the request was sent. Python verifies HTTPS against its
+own bundled certificate list, not the Windows or macOS store, so a machine where antivirus or a company
+proxy inspects TLS traffic (Kaspersky, ESET, Bitdefender, Avast, Zscaler, Netskope, ...) presents a
+certificate signed by a private root that the browser trusts and Python does not. In order of preference:
+
+1. Install the pinned OS trust bridge and restart the check - this is the default and usually all it takes:
+   `.venv\Scripts\pip install -r requirements.txt` (it now includes `truststore`).
+2. Export the inspecting root certificate to a `.pem` file and point `HTTPS_CA_BUNDLE` at it in `.env`.
+3. Exempt `api.twelvedata.com` from HTTPS scanning in the antivirus settings.
+
+`python -m app.check_provider` names the authority your machine is served, so you can tell which product is
+doing it. Never disable certificate verification: it would expose the feed to anyone on the network path.
 
 ## Tests
 ```bash

@@ -36,4 +36,7 @@ Expected: `GET /health` → `{"status":"ok","demo_data":true,...}`; the UI shows
 See the "Live prices (optional)" section of the AurumGuard README. Short version: seed with the mock
 provider, set `MARKET_DATA_PROVIDER=twelvedata`, `TWELVEDATA_API_KEY`, `CALENDAR_PROVIDER=none`,
 `NEWS_PROVIDER=none`, `ANALYSIS_INTERVAL_SECONDS=300` in `backend/.env`, run
-`python -m app.check_provider`, then start uvicorn.
+`python -m app.check_provider`, then start uvicorn. If the check reports `CERTIFICATE_VERIFY_FAILED`, the key
+is fine and the TLS chain is not: antivirus or a proxy is inspecting HTTPS. Install `truststore`
+(in `requirements.txt`) so Python trusts the OS certificate store, or point `HTTPS_CA_BUNDLE` at the
+inspecting root; see the README troubleshooting section.

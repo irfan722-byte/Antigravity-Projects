@@ -61,7 +61,13 @@ def build_providers(settings: Settings) -> ProviderSet:
     if settings.market_data_provider == "twelvedata":
         from .twelvedata import TwelveDataProvider
 
-        market: MarketDataProvider = TwelveDataProvider(settings.twelvedata_api_key or "", quote_ttl_seconds=settings.twelvedata_quote_ttl_seconds, assumed_spread_usd=settings.twelvedata_assumed_spread_usd)
+        market: MarketDataProvider = TwelveDataProvider(
+            settings.twelvedata_api_key or "",
+            quote_ttl_seconds=settings.twelvedata_quote_ttl_seconds,
+            assumed_spread_usd=settings.twelvedata_assumed_spread_usd,
+            ca_bundle=settings.https_ca_bundle,
+            trust_mode=settings.https_trust,
+        )
     else:
         market = MockMarketDataProvider()
     push: PushProvider
