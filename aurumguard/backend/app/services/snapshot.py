@@ -7,7 +7,7 @@ backtest replay through this same function cannot see the future.
 from __future__ import annotations
 
 import statistics
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
@@ -50,7 +50,7 @@ def _zscore_change(series: list[float], horizon: int = 5, window: int = 60, addi
     return cur, (cur / sd if sd > 0 else None)
 
 
-def build_snapshot(providers: ProviderSet, now: datetime, user_tz: str, timeframes: list[Timeframe] | None = None, integrity: IntegrityConfig | None = None, news_cfg: NewsConfig | None = None) -> MarketSnapshot:
+def build_snapshot(providers: ProviderSet, now: datetime, user_tz: str, timeframes: list[Timeframe] | None = None, integrity: IntegrityConfig | None = None, news_cfg: NewsConfig | None = None, live: bool = True) -> MarketSnapshot:
     now = ensure_utc(now)
     icfg = integrity or IntegrityConfig()
     tfs = timeframes or DEFAULT_TFS
@@ -71,7 +71,15 @@ def build_snapshot(providers: ProviderSet, now: datetime, user_tz: str, timefram
     quote_report: IntegrityReport | None = None
     try:
         quote = market.get_quote("XAUUSD", now, max_age=icfg.quote_max_age_seconds)
-        quote_report = validate_quote(quote, now, icfg)
+        # Validate at the moment the quote is used, not the moment the evaluation started. `now` is
+        # taken before the fetch, so a live quote is legitimately newer than it; comparing against
+        # `now` reported QUOTE_FUTURE_TS - and therefore DATA UNAVAILABLE on every horizon - as soon
+        # as a fetch took longer than the tolerance. It also understated the quote's real age. A
+        # replay passes live=False and keeps its historical instant.
+        wall = datetime.now(tz=UTC)
+        recent = 0 <= (wall - now).total_seconds() <= 300  # this evaluation really is happening now
+        checked_at = wall if live and recent else now
+        quote_report = validate_quote(quote, checked_at, icfg)
     except ProviderError as exc:
         data_unavailable.append(f"quote: {exc}")
 

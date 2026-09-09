@@ -100,7 +100,9 @@ def _basic(trades: list[TradeRecord]) -> dict:
         "trades": n,
         "win_rate": round(len(wins) / n, 4),
         "expectancy_r": round(float(rs.mean()), 4),
-        "profit_factor": round(gp / gl, 3) if gl > 0 else (None if gp == 0 else float("inf")),
+        # No losing trades leaves profit factor undefined. Infinity is not valid JSON, so emitting
+        # it here made every endpoint carrying this metric fail to serialise with a 500.
+        "profit_factor": round(gp / gl, 3) if gl > 0 else None,
         "net_usd": round(sum(t.pnl_usd for t in trades), 2),
     }
 

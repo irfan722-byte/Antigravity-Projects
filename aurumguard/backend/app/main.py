@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -62,10 +63,31 @@ async def lifespan(app: FastAPI):
         sched.shutdown(wait=False)
 
 
+def _json_safe(value):
+    """Replace non-finite floats with null, recursively.
+
+    Starlette's encoder rejects inf and nan and turns the whole response into a 500. An undefined
+    metric - profit factor for a bucket with no losing trades, say - deserves a null, not a dead
+    page, and values written by earlier builds are still in the database.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+class SafeJSONResponse(JSONResponse):
+    def render(self, content) -> bytes:
+        return super().render(_json_safe(content))
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level)
-    app = FastAPI(title="AurumGuard API", version="0.1.0", lifespan=lifespan, docs_url="/api/docs" if settings.app_env != "production" else None, redoc_url=None, openapi_url="/api/openapi.json" if settings.app_env != "production" else None)
+    app = FastAPI(default_response_class=SafeJSONResponse, title="AurumGuard API", version="0.1.0", lifespan=lifespan, docs_url="/api/docs" if settings.app_env != "production" else None, redoc_url=None, openapi_url="/api/openapi.json" if settings.app_env != "production" else None)
     app.state.settings = settings
     app.state.providers = build_providers(settings)
     app.state.analysis = AnalysisService(app.state.providers, settings)

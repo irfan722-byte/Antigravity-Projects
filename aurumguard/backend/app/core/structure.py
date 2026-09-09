@@ -264,7 +264,7 @@ def consolidation_range(candles: Sequence[Candle], p: StructureParams = Structur
         return None
     win = candles[-p.range_lookback :]
     hi, lo = max(c.high for c in win), min(c.low for c in win)
-    w = (hi - lo) / a if a else float("inf")
+    w = (hi - lo) / a if a else float("inf")  # zero ATR: width is undefined, and inf keeps `not a range`
     return RangeState(w <= p.range_max_width_atr, hi, lo, w)
 
 
