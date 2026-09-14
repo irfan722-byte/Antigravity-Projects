@@ -10,14 +10,15 @@ martingale** hedge strategy on XAUUSD (Gold).
 ## Strategy (as specified)
 
 1. **First trade:** market **BUY** at the base lot (`0.01`). Its price is the
-   cycle **anchor**.
-2. **The grid follows price.** Each time price extends one more grid step
-   (`$2`) beyond the furthest level already traded, a new doubled lot is added
-   **in the direction of the move**:
-   - a new step **up** → add a **BUY**
-   - a new step **down** → add a **SELL**
-   Lots: `0.01 → 0.02 → 0.04 → 0.08 → 0.16 …`. It keeps adding as price keeps
-   moving — it does **not** freeze — until the basket turns net profit.
+   cycle **anchor** and becomes the fixed **BUY gate**; the fixed **SELL gate**
+   is one grid step (`$2`) below it.
+2. **The two gate prices stay fixed** for the whole cycle. Entries alternate
+   and re-fire at those **same two prices**:
+   - price rises to the **BUY gate** → add a **BUY**
+   - price falls to the **SELL gate** → add a **SELL**
+   Lots double each entry: `0.01 → 0.02 → 0.04 → 0.08 → 0.16 …`. It keeps
+   re-adding at the same two prices until the basket turns net profit (or the
+   account stop fires).
 3. **Basket exit:** the combined floating P/L of all trades is watched. At the
    **trail-start** target (`$2`) a trailing lock arms; if profit then drops by
    the **trail gap** (`$1`) from its peak, **all trades close**.

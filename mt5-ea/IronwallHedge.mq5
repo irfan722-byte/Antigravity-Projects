@@ -4,14 +4,15 @@
 //|                                                                  |
 //|   Strategy (as specified by the user):                           |
 //|     * First trade of a cycle: market BUY at the base lot. Its     |
-//|       price is the cycle anchor.                                  |
-//|     * The grid then FOLLOWS price. Every time price extends one   |
-//|       more grid step beyond the furthest level already traded:    |
-//|         - a new step UP    -> add a BUY   (in the move direction) |
-//|         - a new step DOWN  -> add a SELL  (in the move direction) |
+//|       price is the cycle anchor and becomes the fixed BUY gate.   |
+//|       The fixed SELL gate is one grid step below it.              |
+//|     * The two gate PRICES stay FIXED for the whole cycle. Entries |
+//|       alternate and re-fire at those SAME two prices:             |
+//|         - price rises to the BUY gate  -> add a BUY               |
+//|         - price falls to the SELL gate -> add a SELL              |
 //|       Each new entry DOUBLES the lot: 0.01, 0.02, 0.04, 0.08 ...  |
-//|       Adds keep coming as price keeps moving -- it does NOT stop  |
-//|       or freeze -- until the basket turns net profit.             |
+//|       It keeps re-adding at the same two prices until the basket  |
+//|       turns net profit (or the account stop fires).              |
 //|     * Basket exit: watch the combined floating P/L of all trades. |
 //|       When it reaches the trail-start target (default $2) a       |
 //|       trailing lock arms; if profit then falls back by the trail  |
@@ -32,8 +33,8 @@
 //+------------------------------------------------------------------+
 #property copyright   "Educational reconstruction"
 #property link        ""
-#property version     "3.00"
-#property description "Moving-grid martingale: doubles lots on each new price step until net profit; mandatory equity stop. High risk; demo-test first."
+#property version     "3.10"
+#property description "Fixed-gate martingale: two fixed prices, doubles lots re-adding until net profit; mandatory equity stop. High risk; demo-test first."
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -164,9 +165,9 @@ void OnTick()
         }
      }
 
-   //--- 4) Keep adding doubled lots as price extends
+   //--- 4) Re-add doubled lots at the two FIXED gates
    if(count < InpMaxLevels)
-      AddOnExtension(count);
+      AddAtFixedGates(count);
 
    if(InpShowPanel) UpdatePanel(count, profit);
   }
@@ -193,58 +194,74 @@ void StartNewCycle()
   }
 
 //+------------------------------------------------------------------+
-//| Add a doubled lot when price extends one step beyond the         |
-//| furthest level already traded, in the direction of the move.     |
+//| Re-add a doubled lot at one of the two FIXED gates.              |
+//| Entries alternate: buy, sell, buy, sell ... at the same two      |
+//| prices, anchored to the cycle's first trade.                    |
 //+------------------------------------------------------------------+
-void AddOnExtension(int count)
+void AddAtFixedGates(int count)
   {
-   double anchor, maxBuy, minSell;
-   if(!GetGridRefs(anchor, maxBuy, minSell))
+   double anchor;
+   bool   anchorIsBuy;
+   if(!GetAnchor(anchor, anchorIsBuy))
       return;
 
-   double refUp = (maxBuy  > 0.0) ? maxBuy  : anchor;   // highest price with a BUY
-   double refDn = (minSell > 0.0) ? minSell : anchor;   // lowest  price with a SELL
+   double step = InpGridStepPrice;
+   double gateBuy, gateSell;
+   bool   nextIsBuy;
+   if(anchorIsBuy)
+     {
+      gateBuy   = anchor;                 // fixed BUY gate = first entry price
+      gateSell  = anchor - step;          // fixed SELL gate one step below
+      nextIsBuy = ((count % 2) == 0);     // buy, sell, buy, sell ...
+     }
+   else
+     {
+      gateSell  = anchor;                 // fixed SELL gate = first entry price
+      gateBuy   = anchor + step;          // fixed BUY gate one step above
+      nextIsBuy = ((count % 2) == 1);     // sell, buy, sell, buy ...
+     }
 
-   double step      = InpGridStepPrice;
-   double nextBuyAt  = NormalizePrice(refUp + step);
-   double nextSellAt = NormalizePrice(refDn - step);
-
-   if(InpDrawLines) DrawLines(nextBuyAt, nextSellAt);
+   gateBuy  = NormalizePrice(gateBuy);
+   gateSell = NormalizePrice(gateSell);
+   if(InpDrawLines) DrawLines(gateBuy, gateSell);
 
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double lot = NormalizeLot(InpInitialLot * MathPow(InpLotMultiplier, count));
 
-   if(ask >= nextBuyAt)
+   if(nextIsBuy)
      {
-      if(trade.Buy(lot, _Symbol, ask, 0.0, 0.0, InpComment))
-         Print("Add BUY lvl=", count+1, " lot=", lot, " @", DoubleToString(ask,_Digits));
-      else
-         Print("Add BUY failed lvl=", count+1, " lot=", lot,
-               " retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+      if(ask >= gateBuy)
+        {
+         if(trade.Buy(lot, _Symbol, ask, 0.0, 0.0, InpComment))
+            Print("Add BUY lvl=", count+1, " lot=", lot, " @gate=", DoubleToString(gateBuy,_Digits));
+         else
+            Print("Add BUY failed lvl=", count+1, " lot=", lot,
+                  " retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+        }
      }
-   else if(bid <= nextSellAt)
+   else
      {
-      if(trade.Sell(lot, _Symbol, bid, 0.0, 0.0, InpComment))
-         Print("Add SELL lvl=", count+1, " lot=", lot, " @", DoubleToString(bid,_Digits));
-      else
-         Print("Add SELL failed lvl=", count+1, " lot=", lot,
-               " retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+      if(bid <= gateSell)
+        {
+         if(trade.Sell(lot, _Symbol, bid, 0.0, 0.0, InpComment))
+            Print("Add SELL lvl=", count+1, " lot=", lot, " @gate=", DoubleToString(gateSell,_Digits));
+         else
+            Print("Add SELL failed lvl=", count+1, " lot=", lot,
+                  " retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+        }
      }
   }
 
 //+------------------------------------------------------------------+
-//| Gather grid reference prices from open positions                 |
-//|  anchor  = oldest position open price                            |
-//|  maxBuy  = highest open price among BUY positions (0 if none)    |
-//|  minSell = lowest  open price among SELL positions (0 if none)   |
+//| Find the oldest position of the cycle (its open price and side). |
+//| It anchors the two fixed gates.                                 |
 //+------------------------------------------------------------------+
-bool GetGridRefs(double &anchor, double &maxBuy, double &minSell)
+bool GetAnchor(double &openPrice, bool &isBuy)
   {
-   anchor  = 0.0; maxBuy = 0.0; minSell = 0.0;
-   ulong    oldestTicket = 0;
-   datetime oldestTime   = 0;
-   bool     found        = false;
+   ulong    bestTicket = 0;
+   datetime bestTime   = 0;
+   bool     found      = false;
 
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
@@ -254,24 +271,14 @@ bool GetGridRefs(double &anchor, double &maxBuy, double &minSell)
       if(posinfo.Symbol() != _Symbol) continue;
       if(posinfo.Magic()  != InpMagic) continue;
 
-      double op = posinfo.PriceOpen();
       datetime t = (datetime)posinfo.Time();
-
-      if(!found || t < oldestTime) { oldestTime = t; oldestTicket = ticket; found = true; }
-
-      if(posinfo.PositionType() == POSITION_TYPE_BUY)
-        {
-         if(maxBuy == 0.0 || op > maxBuy) maxBuy = op;
-        }
-      else
-        {
-         if(minSell == 0.0 || op < minSell) minSell = op;
-        }
+      if(!found || t < bestTime) { bestTime = t; bestTicket = ticket; found = true; }
      }
    if(!found) return(false);
-   if(posinfo.SelectByTicket(oldestTicket))
-      anchor = posinfo.PriceOpen();
-   return(anchor > 0.0);
+   if(!posinfo.SelectByTicket(bestTicket)) return(false);
+   openPrice = posinfo.PriceOpen();
+   isBuy     = (posinfo.PositionType() == POSITION_TYPE_BUY);
+   return(openPrice > 0.0);
   }
 
 //+------------------------------------------------------------------+
