@@ -1,73 +1,73 @@
 //+------------------------------------------------------------------+
 //|                                              IronwallHedge.mq5    |
-//|   Two-level pendulum martingale hedge EA for MetaTrader 5         |
+//|   Moving-grid martingale hedge EA for MetaTrader 5                |
 //|                                                                  |
 //|   Strategy (as specified by the user):                           |
-//|     * A cycle is anchored to TWO fixed price gates one grid step  |
-//|       apart: a BUY gate (the first entry price, e.g. 4310) and a  |
-//|       SELL gate one step below it (e.g. 4308).                    |
-//|     * The first trade of a cycle is a market BUY at the base lot. |
-//|     * Entries then ALTERNATE at the two gates:                    |
-//|         - price falls to the SELL gate  -> open a SELL            |
-//|         - price rises to the BUY gate   -> open a BUY             |
+//|     * First trade of a cycle: market BUY at the base lot. Its     |
+//|       price is the cycle anchor.                                  |
+//|     * The grid then FOLLOWS price. Every time price extends one   |
+//|       more grid step beyond the furthest level already traded:    |
+//|         - a new step UP    -> add a BUY   (in the move direction) |
+//|         - a new step DOWN  -> add a SELL  (in the move direction) |
 //|       Each new entry DOUBLES the lot: 0.01, 0.02, 0.04, 0.08 ...  |
-//|     * The whole basket (all buys + sells) is closed together once |
-//|       its combined floating profit reaches the trail-start target |
-//|       (default $2). After that a trailing lock is armed: if profit |
-//|       falls back by the trail gap (default $1) from its peak, the  |
-//|       basket is closed, locking in the gain.                      |
-//|     * Lots keep doubling until the basket turns profitable, up to  |
-//|       a MaxLevels safety cap. When the basket closes, a fresh      |
-//|       cycle starts immediately at the current price. No spread    |
-//|       filter.                                                     |
+//|       Adds keep coming as price keeps moving -- it does NOT stop  |
+//|       or freeze -- until the basket turns net profit.             |
+//|     * Basket exit: watch the combined floating P/L of all trades. |
+//|       When it reaches the trail-start target (default $2) a       |
+//|       trailing lock arms; if profit then falls back by the trail  |
+//|       gap (default $1) from its peak, ALL trades close.           |
+//|     * MANDATORY account stop: if the basket's floating loss ever  |
+//|       reaches StopLossPct of the account balance (default 50%),   |
+//|       everything is closed. This is the only thing standing       |
+//|       between a bad trend and a wiped account -- do not remove it. |
+//|     * When the basket closes (profit OR stop), a new cycle starts |
+//|       immediately at the current price. No spread filter.         |
 //|                                                                  |
-//|   RISK WARNING: This is a martingale. Lot sizes grow             |
-//|   geometrically. A sustained one-directional trend that keeps     |
-//|   round-tripping the two gates will keep doubling the lot and can  |
-//|   margin-call the account before the +$2 target is reached. The    |
-//|   MaxLevels cap and the optional hard money stop are the only      |
-//|   defence. Test on a DEMO account first. Educational use only.    |
+//|   RISK WARNING: This is a martingale with NO per-trade stop. Lot  |
+//|   sizes grow geometrically as price trends. A sustained move will  |
+//|   hit the StopLossPct floor and realise a large loss -- that is   |
+//|   the design working, not a bug. There is no lot schedule that    |
+//|   "always turns net profit" on a finite account. Test on DEMO.    |
+//|   Educational use only. Not financial advice.                    |
 //+------------------------------------------------------------------+
 #property copyright   "Educational reconstruction"
 #property link        ""
-#property version     "2.00"
-#property description "Two-level pendulum martingale. Buy/sell gates, lot doubling, basket net-profit trail. Martingale risk; demo-test first."
+#property version     "3.00"
+#property description "Moving-grid martingale: doubles lots on each new price step until net profit; mandatory equity stop. High risk; demo-test first."
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
 
-//--- Direction of the first trade of every cycle
 enum ENUM_START_DIRECTION
   {
-   START_BUY  = 0,   // First trade = BUY (gates: BUY=entry, SELL=entry-step)
-   START_SELL = 1    // First trade = SELL (gates: SELL=entry, BUY=entry+step)
+   START_BUY  = 0,   // First trade = BUY
+   START_SELL = 1    // First trade = SELL
   };
 
 //============================ INPUTS ================================
 input group           "=== General ==="
-input long            InpMagic          = 490050;         // Magic number
-input string          InpComment        = "IronwallHedge";// Order comment
-input ulong           InpSlippage       = 50;             // Max slippage (points)
+input long            InpMagic          = 490051;          // Magic number
+input string          InpComment        = "IronwallHedge"; // Order comment
+input ulong           InpSlippage       = 50;              // Max slippage (points)
 
 input group           "=== Entry & grid ==="
-input ENUM_START_DIRECTION InpStartDir  = START_BUY;      // First trade direction
-input double          InpInitialLot     = 0.01;           // Base (first) lot
-input double          InpLotMultiplier  = 2.0;            // Lot multiplier per re-entry
-input double          InpMaxLot         = 50.0;           // Hard cap on a single order lot
-input double          InpGridStepPrice  = 2.0;            // Distance between the two gates (price, e.g. 2.0 = $2)
-input int             InpMaxLevels      = 15;             // Max entries per cycle (safety cap)
+input ENUM_START_DIRECTION InpStartDir  = START_BUY;       // First trade direction
+input double          InpInitialLot     = 0.01;            // Base (first) lot
+input double          InpLotMultiplier  = 2.0;             // Lot multiplier per new entry
+input double          InpMaxLot         = 100.0;           // Hard cap on a single order lot
+input double          InpGridStepPrice  = 2.0;             // Grid step (price, e.g. 2.0 = $2)
+input int             InpMaxLevels      = 100;             // Absolute max entries per cycle
 
 input group           "=== Basket exit (net profit + trailing) ==="
-input double          InpTrailStartMoney= 2.0;            // Arm trailing when basket profit >= this (money)
-input double          InpTrailGapMoney  = 1.0;            // Close if profit falls this much from its peak (money)
+input double          InpTrailStartMoney= 2.0;             // Arm trailing when basket profit >= this (money)
+input double          InpTrailGapMoney  = 1.0;             // Close if profit falls this much from its peak (money)
 
-input group           "=== Safety (optional) ==="
-input bool            InpUseHardStop    = false;          // Close basket at a max floating loss
-input double          InpMaxLossMoney   = 0.0;            // Max basket floating loss (money, if hard stop on)
+input group           "=== MANDATORY account stop ==="
+input double          InpStopLossPct    = 50.0;            // Close basket when floating loss >= this % of balance
 
 input group           "=== Display ==="
-input bool            InpShowPanel      = true;           // Show on-chart status panel
-input bool            InpDrawGates      = true;           // Draw the two gate lines
+input bool            InpShowPanel      = true;            // Show on-chart status panel
+input bool            InpDrawLines      = true;            // Draw next buy/sell trigger lines
 //===================================================================
 
 CTrade         trade;
@@ -75,15 +75,12 @@ CPositionInfo  posinfo;
 
 double         g_point;
 double         g_ticksize;
-datetime       g_tickGuard = 0;
 
-//--- trailing state (per cycle)
 bool           g_trailActive = false;
 double         g_peakProfit  = 0.0;
 
-//--- gate line object names
-string         GATE_BUY_NAME  = "IWH_gate_buy";
-string         GATE_SELL_NAME = "IWH_gate_sell";
+string         LINE_UP   = "IWH_next_buy";
+string         LINE_DN   = "IWH_next_sell";
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -103,14 +100,13 @@ int OnInit()
    if(InpGridStepPrice <= 0.0)   { Print("ERROR: InpGridStepPrice must be > 0");   return(INIT_PARAMETERS_INCORRECT); }
    if(InpTrailStartMoney <= 0.0) { Print("ERROR: InpTrailStartMoney must be > 0"); return(INIT_PARAMETERS_INCORRECT); }
    if(InpTrailGapMoney <= 0.0)   { Print("ERROR: InpTrailGapMoney must be > 0");   return(INIT_PARAMETERS_INCORRECT); }
+   if(InpStopLossPct <= 0.0)     { Print("ERROR: InpStopLossPct must be > 0");     return(INIT_PARAMETERS_INCORRECT); }
 
-   //--- re-arm trailing state from any basket already open
    SyncTrailStateFromBasket();
 
-   Print("IronwallHedge v2 initialized on ", _Symbol,
-         " | step(price)=", InpGridStepPrice,
-         " base=", InpInitialLot, " mult=", InpLotMultiplier,
-         " maxLevels=", InpMaxLevels);
+   Print("IronwallHedge v3 initialized on ", _Symbol,
+         " | step=", InpGridStepPrice, " base=", InpInitialLot,
+         " mult=", InpLotMultiplier, " stop=", InpStopLossPct, "%");
    return(INIT_SUCCEEDED);
   }
 
@@ -118,17 +114,16 @@ int OnInit()
 void OnDeinit(const int reason)
   {
    Comment("");
-   ObjectDelete(0, GATE_BUY_NAME);
-   ObjectDelete(0, GATE_SELL_NAME);
+   ObjectDelete(0, LINE_UP);
+   ObjectDelete(0, LINE_DN);
   }
 
 //+------------------------------------------------------------------+
 void OnTick()
   {
-   int    count  = CountPositions();
-   double profit = BasketFloatingPL();
+   int count = CountPositions();
 
-   //--- 1) No open basket -> start a fresh cycle immediately (no spread filter)
+   //--- 1) Flat -> start a fresh cycle at once (no spread filter)
    if(count == 0)
      {
       ResetTrailState();
@@ -137,7 +132,20 @@ void OnTick()
       return;
      }
 
-   //--- 2) Basket exit: trailing net-profit lock
+   double profit  = BasketFloatingPL();
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+
+   //--- 2) MANDATORY account stop
+   if(balance > 0.0 && profit <= -(InpStopLossPct / 100.0) * balance)
+     {
+      Print("ACCOUNT STOP hit. loss=", DoubleToString(profit,2),
+            " (", DoubleToString(InpStopLossPct,1), "% of ", DoubleToString(balance,2), ")");
+      CloseBasket();
+      ResetTrailState();
+      return;
+     }
+
+   //--- 3) Basket exit: net-profit trailing lock
    if(!g_trailActive && profit >= InpTrailStartMoney)
      {
       g_trailActive = true;
@@ -156,17 +164,9 @@ void OnTick()
         }
      }
 
-   //--- 3) Optional hard money stop
-   if(InpUseHardStop && InpMaxLossMoney > 0.0 && profit <= -MathAbs(InpMaxLossMoney))
-     {
-      Print("Basket hard stop. profit=", DoubleToString(profit,2));
-      CloseBasket();
-      ResetTrailState();
-      return;
-     }
-
-   //--- 4) Add the next martingale entry when a gate is touched
-   ManageGridEntries(count);
+   //--- 4) Keep adding doubled lots as price extends
+   if(count < InpMaxLevels)
+      AddOnExtension(count);
 
    if(InpShowPanel) UpdatePanel(count, profit);
   }
@@ -193,75 +193,58 @@ void StartNewCycle()
   }
 
 //+------------------------------------------------------------------+
-//| Add the next entry when price reaches the appropriate gate       |
+//| Add a doubled lot when price extends one step beyond the         |
+//| furthest level already traded, in the direction of the move.     |
 //+------------------------------------------------------------------+
-void ManageGridEntries(int count)
+void AddOnExtension(int count)
   {
-   if(count >= InpMaxLevels)
-     {
-      if(InpDrawGates) DrawGates();
-      return;                       // cap reached: hold, wait for the basket to recover
-     }
-
-   //--- anchor = the oldest position of the cycle (the first entry)
-   bool   anchorIsBuy;
-   double anchorOpen;
-   if(!GetAnchor(anchorOpen, anchorIsBuy))
+   double anchor, maxBuy, minSell;
+   if(!GetGridRefs(anchor, maxBuy, minSell))
       return;
 
-   double gateBuy, gateSell;
-   bool   nextIsBuy;
-   if(anchorIsBuy)
-     {
-      gateBuy   = anchorOpen;                    // buy gate = first entry price
-      gateSell  = anchorOpen - InpGridStepPrice; // sell gate one step below
-      nextIsBuy = ((count % 2) == 0);            // buy,sell,buy,sell...
-     }
-   else
-     {
-      gateSell  = anchorOpen;                    // sell gate = first entry price
-      gateBuy   = anchorOpen + InpGridStepPrice; // buy gate one step above
-      nextIsBuy = ((count % 2) == 1);            // sell,buy,sell,buy...
-     }
+   double refUp = (maxBuy  > 0.0) ? maxBuy  : anchor;   // highest price with a BUY
+   double refDn = (minSell > 0.0) ? minSell : anchor;   // lowest  price with a SELL
 
-   if(InpDrawGates) DrawGates(gateBuy, gateSell);
+   double step      = InpGridStepPrice;
+   double nextBuyAt  = NormalizePrice(refUp + step);
+   double nextSellAt = NormalizePrice(refDn - step);
 
-   double nextLot = NormalizeLot(InpInitialLot * MathPow(InpLotMultiplier, count));
+   if(InpDrawLines) DrawLines(nextBuyAt, nextSellAt);
+
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double lot = NormalizeLot(InpInitialLot * MathPow(InpLotMultiplier, count));
 
-   if(nextIsBuy)
+   if(ask >= nextBuyAt)
      {
-      //--- price has risen back to (or above) the BUY gate
-      if(ask >= NormalizePrice(gateBuy))
-        {
-         if(trade.Buy(nextLot, _Symbol, ask, 0.0, 0.0, InpComment))
-            Print("Add BUY lvl=", count+1, " lot=", nextLot, " @gate=", DoubleToString(gateBuy,_Digits));
-         else
-            Print("Add BUY failed. retcode=", trade.ResultRetcode());
-        }
+      if(trade.Buy(lot, _Symbol, ask, 0.0, 0.0, InpComment))
+         Print("Add BUY lvl=", count+1, " lot=", lot, " @", DoubleToString(ask,_Digits));
+      else
+         Print("Add BUY failed lvl=", count+1, " lot=", lot,
+               " retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
      }
-   else
+   else if(bid <= nextSellAt)
      {
-      //--- price has fallen to (or below) the SELL gate
-      if(bid <= NormalizePrice(gateSell))
-        {
-         if(trade.Sell(nextLot, _Symbol, bid, 0.0, 0.0, InpComment))
-            Print("Add SELL lvl=", count+1, " lot=", nextLot, " @gate=", DoubleToString(gateSell,_Digits));
-         else
-            Print("Add SELL failed. retcode=", trade.ResultRetcode());
-        }
+      if(trade.Sell(lot, _Symbol, bid, 0.0, 0.0, InpComment))
+         Print("Add SELL lvl=", count+1, " lot=", lot, " @", DoubleToString(bid,_Digits));
+      else
+         Print("Add SELL failed lvl=", count+1, " lot=", lot,
+               " retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
      }
   }
 
 //+------------------------------------------------------------------+
-//| Find the oldest position of the cycle (its open price and side)  |
+//| Gather grid reference prices from open positions                 |
+//|  anchor  = oldest position open price                            |
+//|  maxBuy  = highest open price among BUY positions (0 if none)    |
+//|  minSell = lowest  open price among SELL positions (0 if none)   |
 //+------------------------------------------------------------------+
-bool GetAnchor(double &openPrice, bool &isBuy)
+bool GetGridRefs(double &anchor, double &maxBuy, double &minSell)
   {
-   ulong    bestTicket = 0;
-   datetime bestTime   = 0;
-   bool     found      = false;
+   anchor  = 0.0; maxBuy = 0.0; minSell = 0.0;
+   ulong    oldestTicket = 0;
+   datetime oldestTime   = 0;
+   bool     found        = false;
 
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
@@ -271,24 +254,26 @@ bool GetAnchor(double &openPrice, bool &isBuy)
       if(posinfo.Symbol() != _Symbol) continue;
       if(posinfo.Magic()  != InpMagic) continue;
 
+      double op = posinfo.PriceOpen();
       datetime t = (datetime)posinfo.Time();
-      if(!found || t < bestTime)
+
+      if(!found || t < oldestTime) { oldestTime = t; oldestTicket = ticket; found = true; }
+
+      if(posinfo.PositionType() == POSITION_TYPE_BUY)
         {
-         bestTime   = t;
-         bestTicket = ticket;
-         found      = true;
+         if(maxBuy == 0.0 || op > maxBuy) maxBuy = op;
+        }
+      else
+        {
+         if(minSell == 0.0 || op < minSell) minSell = op;
         }
      }
    if(!found) return(false);
-
-   if(!posinfo.SelectByTicket(bestTicket)) return(false);
-   openPrice = posinfo.PriceOpen();
-   isBuy     = (posinfo.PositionType() == POSITION_TYPE_BUY);
-   return(true);
+   if(posinfo.SelectByTicket(oldestTicket))
+      anchor = posinfo.PriceOpen();
+   return(anchor > 0.0);
   }
 
-//+------------------------------------------------------------------+
-//| Close all positions of this EA                                   |
 //+------------------------------------------------------------------+
 void CloseBasket()
   {
@@ -344,18 +329,11 @@ void ResetTrailState()
   }
 
 //+------------------------------------------------------------------+
-//| On (re)start, if a basket is already open and already past the   |
-//| trail-start target, arm the trailing so we don't lose the lock.  |
-//+------------------------------------------------------------------+
 void SyncTrailStateFromBasket()
   {
    if(CountPositions() == 0) { ResetTrailState(); return; }
    double profit = BasketFloatingPL();
-   if(profit >= InpTrailStartMoney)
-     {
-      g_trailActive = true;
-      g_peakProfit  = profit;
-     }
+   if(profit >= InpTrailStartMoney) { g_trailActive = true; g_peakProfit = profit; }
   }
 
 //+------------------------------------------------------------------+
@@ -385,44 +363,39 @@ double NormalizePrice(double price)
   }
 
 //+------------------------------------------------------------------+
-void DrawGates(double gateBuy = 0.0, double gateSell = 0.0)
+void DrawLines(double buyAt, double sellAt)
   {
-   if(gateBuy > 0.0)
-     {
-      if(ObjectFind(0, GATE_BUY_NAME) < 0)
-         ObjectCreate(0, GATE_BUY_NAME, OBJ_HLINE, 0, 0, gateBuy);
-      ObjectSetDouble(0, GATE_BUY_NAME, OBJPROP_PRICE, gateBuy);
-      ObjectSetInteger(0, GATE_BUY_NAME, OBJPROP_COLOR, clrDodgerBlue);
-      ObjectSetInteger(0, GATE_BUY_NAME, OBJPROP_STYLE, STYLE_DOT);
-     }
-   if(gateSell > 0.0)
-     {
-      if(ObjectFind(0, GATE_SELL_NAME) < 0)
-         ObjectCreate(0, GATE_SELL_NAME, OBJ_HLINE, 0, 0, gateSell);
-      ObjectSetDouble(0, GATE_SELL_NAME, OBJPROP_PRICE, gateSell);
-      ObjectSetInteger(0, GATE_SELL_NAME, OBJPROP_COLOR, clrTomato);
-      ObjectSetInteger(0, GATE_SELL_NAME, OBJPROP_STYLE, STYLE_DOT);
-     }
+   if(ObjectFind(0, LINE_UP) < 0) ObjectCreate(0, LINE_UP, OBJ_HLINE, 0, 0, buyAt);
+   ObjectSetDouble (0, LINE_UP, OBJPROP_PRICE, buyAt);
+   ObjectSetInteger(0, LINE_UP, OBJPROP_COLOR, clrDodgerBlue);
+   ObjectSetInteger(0, LINE_UP, OBJPROP_STYLE, STYLE_DOT);
+
+   if(ObjectFind(0, LINE_DN) < 0) ObjectCreate(0, LINE_DN, OBJ_HLINE, 0, 0, sellAt);
+   ObjectSetDouble (0, LINE_DN, OBJPROP_PRICE, sellAt);
+   ObjectSetInteger(0, LINE_DN, OBJPROP_COLOR, clrTomato);
+   ObjectSetInteger(0, LINE_DN, OBJPROP_STYLE, STYLE_DOT);
   }
 
 //+------------------------------------------------------------------+
 void UpdatePanel(int count, double profit)
   {
-   string cur = AccountInfoString(ACCOUNT_CURRENCY);
-   double nextLot = (count < InpMaxLevels)
-                    ? NormalizeLot(InpInitialLot * MathPow(InpLotMultiplier, MathMax(count,1)))
-                    : 0.0;
+   string cur     = AccountInfoString(ACCOUNT_CURRENCY);
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double stopAt  = -(InpStopLossPct / 100.0) * balance;
+   double nextLot = NormalizeLot(InpInitialLot * MathPow(InpLotMultiplier, MathMax(count,1)));
+
    string txt =
-      "IRONWALL HEDGE v2  (" + _Symbol + ")\n" +
+      "IRONWALL HEDGE v3  (" + _Symbol + ")\n" +
       "-------------------------------\n" +
       "Open trades : " + IntegerToString(count) + " / " + IntegerToString(InpMaxLevels) + "\n" +
       "Basket P/L  : " + DoubleToString(profit, 2) + " " + cur + "\n" +
+      "Account stop: " + DoubleToString(stopAt, 2) + " " + cur +
+                         "  (" + DoubleToString(InpStopLossPct,0) + "% of bal)\n" +
       "Trail       : " + (g_trailActive ? ("ARMED peak=" + DoubleToString(g_peakProfit,2)) : "off") +
                          "  (start " + DoubleToString(InpTrailStartMoney,2) + " / gap " + DoubleToString(InpTrailGapMoney,2) + ")\n" +
       "Next lot    : " + DoubleToString(nextLot, 2) + "\n" +
       "Base x mult : " + DoubleToString(InpInitialLot,2) + " x" + DoubleToString(InpLotMultiplier,2) + "\n" +
-      "Gate step   : " + DoubleToString(InpGridStepPrice, _Digits) + "\n" +
-      "Hard stop   : " + (InpUseHardStop ? ("-" + DoubleToString(InpMaxLossMoney,2)) : "off");
+      "Grid step   : " + DoubleToString(InpGridStepPrice, _Digits);
    Comment(txt);
   }
 //+------------------------------------------------------------------+
