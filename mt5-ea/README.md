@@ -46,7 +46,7 @@ martingale** hedge strategy on XAUUSD (Gold).
 | `InpSlippage` | 50 | Max slippage (points) |
 | `InpStartDir` | START_BUY | First trade direction |
 | `InpInitialLot` | 0.01 | Base (first) lot |
-| `InpLotMultiplier` | 2.0 | Lot multiplier per new entry |
+| `InpLotMultiplier` | 1.3 | Lot multiplier per new entry (lower = survives more levels) |
 | `InpMaxLot` | 100.0 | Hard cap on any single order lot |
 | `InpGridStepPrice` | 2.0 | Grid step, in price ($2) |
 | `InpMaxLevels` | 100 | Absolute max entries per cycle |
@@ -74,6 +74,12 @@ martingale** hedge strategy on XAUUSD (Gold).
 - **Lot sizing is everything.** With a `$2` step and `2.0` multiplier on gold,
   a ~$1,000 account survives very few steps. Either use a much larger step, a
   smaller multiplier, or far more capital per 0.01 base lot.
+- **When it stops adding, the panel says why.** Before each add the EA checks
+  free margin with `OrderCalcMargin`. If the account can't afford the next lot,
+  the panel shows `Add status: BLOCKED: next X lot needs $Y, free $Z` and the
+  Experts log records it. That is margin exhaustion, not a code fault — the only
+  cures are a smaller multiplier, a smaller base lot, a bigger step, or more
+  capital.
 - **Not compiled here** — MQL5 compiles only in MetaEditor (Windows/Wine).
   Written against the standard `Trade`/`PositionInfo` API and reviewed
   manually; compile with **F7** before use.

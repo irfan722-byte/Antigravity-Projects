@@ -33,7 +33,7 @@
 //+------------------------------------------------------------------+
 #property copyright   "Educational reconstruction"
 #property link        ""
-#property version     "3.10"
+#property version     "3.20"
 #property description "Fixed-gate martingale: two fixed prices, doubles lots re-adding until net profit; mandatory equity stop. High risk; demo-test first."
 
 #include <Trade/Trade.mqh>
@@ -54,7 +54,7 @@ input ulong           InpSlippage       = 50;              // Max slippage (poin
 input group           "=== Entry & grid ==="
 input ENUM_START_DIRECTION InpStartDir  = START_BUY;       // First trade direction
 input double          InpInitialLot     = 0.01;            // Base (first) lot
-input double          InpLotMultiplier  = 2.0;             // Lot multiplier per new entry
+input double          InpLotMultiplier  = 1.3;             // Lot multiplier per new entry
 input double          InpMaxLot         = 100.0;           // Hard cap on a single order lot
 input double          InpGridStepPrice  = 2.0;             // Grid step (price, e.g. 2.0 = $2)
 input int             InpMaxLevels      = 100;             // Absolute max entries per cycle
@@ -79,6 +79,7 @@ double         g_ticksize;
 
 bool           g_trailActive = false;
 double         g_peakProfit  = 0.0;
+string         g_addStatus   = "";     // why the next add did / didn't happen
 
 string         LINE_UP   = "IWH_next_buy";
 string         LINE_DN   = "IWH_next_sell";
@@ -229,27 +230,53 @@ void AddAtFixedGates(int count)
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double lot = NormalizeLot(InpInitialLot * MathPow(InpLotMultiplier, count));
 
-   if(nextIsBuy)
+   //--- has the relevant gate been reached this tick?
+   bool   trigger = nextIsBuy ? (ask >= gateBuy) : (bid <= gateSell);
+   if(!trigger)
      {
-      if(ask >= gateBuy)
+      g_addStatus = "waiting for " + (nextIsBuy ? "BUY gate " + DoubleToString(gateBuy,_Digits)
+                                                : "SELL gate " + DoubleToString(gateSell,_Digits));
+      return;
+     }
+
+   //--- gate reached: check we can actually afford the next lot
+   double px       = nextIsBuy ? ask : bid;
+   ENUM_ORDER_TYPE ot = nextIsBuy ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+   double reqMargin = 0.0;
+   if(!OrderCalcMargin(ot, _Symbol, lot, px, reqMargin)) reqMargin = 0.0;
+   double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+
+   if(reqMargin > 0.0 && freeMargin < reqMargin)
+     {
+      g_addStatus = StringFormat("BLOCKED: next %.2f lot needs %.2f, free %.2f",
+                                 lot, reqMargin, freeMargin);
+      static datetime lastWarn = 0;
+      if(TimeCurrent() - lastWarn > 30)
         {
-         if(trade.Buy(lot, _Symbol, ask, 0.0, 0.0, InpComment))
-            Print("Add BUY lvl=", count+1, " lot=", lot, " @gate=", DoubleToString(gateBuy,_Digits));
-         else
-            Print("Add BUY failed lvl=", count+1, " lot=", lot,
-                  " retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+         Print("Add ", (nextIsBuy?"BUY":"SELL"), " BLOCKED lvl=", count+1,
+               " lot=", lot, " needMargin=", DoubleToString(reqMargin,2),
+               " freeMargin=", DoubleToString(freeMargin,2),
+               " -> account too small for this lot schedule");
+         lastWarn = TimeCurrent();
         }
+      return;
+     }
+
+   //--- place the add
+   bool ok = nextIsBuy ? trade.Buy (lot, _Symbol, ask, 0.0, 0.0, InpComment)
+                       : trade.Sell(lot, _Symbol, bid, 0.0, 0.0, InpComment);
+   if(ok)
+     {
+      g_addStatus = "";
+      Print("Add ", (nextIsBuy?"BUY":"SELL"), " lvl=", count+1, " lot=", lot,
+            " @gate=", DoubleToString(nextIsBuy?gateBuy:gateSell,_Digits));
      }
    else
      {
-      if(bid <= gateSell)
-        {
-         if(trade.Sell(lot, _Symbol, bid, 0.0, 0.0, InpComment))
-            Print("Add SELL lvl=", count+1, " lot=", lot, " @gate=", DoubleToString(gateSell,_Digits));
-         else
-            Print("Add SELL failed lvl=", count+1, " lot=", lot,
-                  " retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
-        }
+      g_addStatus = StringFormat("add failed retcode=%d %s",
+                                 trade.ResultRetcode(), trade.ResultRetcodeDescription());
+      Print("Add ", (nextIsBuy?"BUY":"SELL"), " failed lvl=", count+1, " lot=", lot,
+            " retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
      }
   }
 
@@ -402,7 +429,8 @@ void UpdatePanel(int count, double profit)
                          "  (start " + DoubleToString(InpTrailStartMoney,2) + " / gap " + DoubleToString(InpTrailGapMoney,2) + ")\n" +
       "Next lot    : " + DoubleToString(nextLot, 2) + "\n" +
       "Base x mult : " + DoubleToString(InpInitialLot,2) + " x" + DoubleToString(InpLotMultiplier,2) + "\n" +
-      "Grid step   : " + DoubleToString(InpGridStepPrice, _Digits);
+      "Grid step   : " + DoubleToString(InpGridStepPrice, _Digits) + "\n" +
+      "Add status  : " + (g_addStatus == "" ? "ok" : g_addStatus);
    Comment(txt);
   }
 //+------------------------------------------------------------------+
