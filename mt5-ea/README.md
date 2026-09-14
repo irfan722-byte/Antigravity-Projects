@@ -1,67 +1,42 @@
-# IRONWALL HEDGE — MT5 Expert Advisor
+# IRONWALL HEDGE v2 — MT5 Expert Advisor
 
-An MT5 Expert Advisor (`IronwallHedge.mq5`) reconstructed from the strategy
-shown in the reference video (`Hedge_EA.MP4`, a screen recording of
-"IRONWALL HEDGE V4.9" running on XAUUSD M1).
+An MT5 Expert Advisor (`IronwallHedge.mq5`) implementing a **two-level
+pendulum martingale** hedge strategy on XAUUSD (Gold).
 
-> **This is a martingale/grid strategy. Read the risk section before using it.**
-
----
-
-## How the strategy was reconstructed
-
-The source is a promotional short-form video with no source code and no
-usable audio narration (the model download needed for speech-to-text was
-blocked by network policy in the build environment). The logic below was
-read directly from the MT5 mobile order panel across the clip:
-
-| Frame stage | On-screen state (net volume per direction) | Floating P/L |
-|-------------|--------------------------------------------|--------------|
-| Start       | `BUY 0.01` + `SELL STOP 0.02`              | small        |
-| Next        | `BUY STOP 0.04` + `SELL 0.02`              | small        |
-| Next        | `BUY 0.04` + `SELL STOP 0.08`              | −5           |
-| Escalation  | `BUY 0.08` + `SELL STOP 0.32`             | −2 → **−31** |
-| Recovery    | `BUY 0.08` + `SELL STOP 0.32`             | **+5.55**    |
-| New cycle   | `BUY STOP 0.04` + `SELL 0.02` (+ SL line) | +1.84        |
-
-Observed facts that drive the design:
-
-- **Instrument / timeframe:** XAUUSD (Gold), M1.
-- **Entry:** one market order plus an opposite pending **STOP** order a fixed
-  distance away.
-- **Lot escalation:** each new level roughly doubles the lot
-  (`0.01 → 0.02 → 0.04 → 0.08 …`) — a **martingale multiplier ~2.0**.
-- **Two-sided "wall":** as price whipsaws, stop orders on both sides keep
-  filling, so the basket is hedged in both directions.
-- **Recovery close:** floating P/L swung deep negative (−31) then the basket
-  closed in profit (+5.55) and a fresh cycle began — i.e. **close the whole
-  basket on a small money target, then restart**.
-- **"Strong Defense / Controlled Risk":** a max number of levels plus an
-  account-level stop (an `SL` line appears late in the clip).
-
-The video does not expose the exact grid distance, multiplier value, TP
-target, or level cap in numbers, so those are **inputs with sensible
-defaults** that you must tune to your broker and risk tolerance.
+> **This is a martingale strategy. Read the risk section before using it.**
 
 ---
 
-## Strategy logic (as implemented)
+## Strategy (exactly as specified)
 
-1. **Start a cycle** — open an initial market order (`BUY` by default) at the
-   base lot, and immediately place an opposite **SELL STOP** one grid step
-   away with a larger lot (`base × multiplier`).
-2. **On each fill** — when a pending stop fills, the net direction flips.
-   Place the next opposite stop one grid step further out, lot multiplied
-   again. Directions alternate: level 0 = start dir, level 1 = opposite,
-   level 2 = start dir, and so on.
-3. **Cap the wall** — stop adding levels once `MaxLevels` positions exist
-   (controlled risk).
-4. **Exit the basket** — close **all** positions and pendings when combined
-   floating P/L reaches the take-profit target (money or net points), or when
-   it falls to the max-loss stop.
-5. **Restart** — begin a fresh cycle (optional).
+A cycle is anchored to **two fixed price gates**, one grid step apart:
 
-Only one basket runs at a time.
+- **BUY gate** — the price of the first entry (example: `4310`)
+- **SELL gate** — one grid step below it (example: `4308`, step `$2`)
+
+Flow:
+
+1. **First trade:** market **BUY** at the base lot (`0.01`) — this sets the
+   BUY gate. The SELL gate is placed one step (`$2`) below.
+2. **Alternating entries at the gates:**
+   - price falls to the **SELL gate** → open a **SELL**
+   - price rises to the **BUY gate** → open a **BUY**
+3. **Lot doubles on every entry:** `0.01 → 0.02 → 0.04 → 0.08 → 0.16 …`
+   (multiplier `2.0`). Worked example matching the spec:
+   `BUY 0.01 @4310 → SELL 0.02 @4308 → BUY 0.04 @4310 → SELL 0.08 @4308 → …`
+4. **Basket exit — net profit + trailing:** the whole basket (all buys and
+   sells together) is watched as one combined floating P/L. When it reaches
+   the **trail-start** target (`$2`), a trailing lock arms. After that, if
+   profit falls back by the **trail gap** (`$1`) from its peak, **all trades
+   close**, locking the gain. (Each trade does **not** have its own separate
+   take-profit — exit is basket-level only.)
+5. **Keep doubling until profit,** up to the **MaxLevels** cap (`15`). When
+   the basket closes, a new cycle starts **immediately** at the current
+   price. **No spread filter.**
+
+Why it can net a profit: the most recent (largest) position is always in the
+direction price just moved, so when a move extends, that leg's gain outruns
+the smaller opposite legs and the basket reaches +$2.
 
 ---
 
@@ -71,62 +46,64 @@ Only one basket runs at a time.
 
 ## Installation
 
-1. Copy `IronwallHedge.mq5` into your MT5 data folder under
-   `MQL5/Experts/` (in MetaTrader: *File → Open Data Folder*).
-2. Open **MetaEditor**, open the file, and press **F7** to compile. It uses
-   only the standard `Trade` library, so no extra dependencies.
-3. In MT5, drag the EA onto an **XAUUSD M1** chart. Enable **Algo Trading**.
-4. **Backtest in the Strategy Tester on a demo account first.**
+1. Copy `IronwallHedge.mq5` into your MT5 data folder under `MQL5/Experts/`
+   (MetaTrader: *File → Open Data Folder*).
+2. Open **MetaEditor**, open the file, press **F7** to compile (standard
+   `Trade` library only — no extra dependencies).
+3. Drag it onto an **XAUUSD** chart, enable **Algo Trading**.
+4. **Backtest on a demo account first.**
 
 ## Inputs
 
 | Input | Default | Meaning |
 |-------|---------|---------|
-| `InpMagic` | 490049 | Magic number (isolates this EA's orders) |
+| `InpMagic` | 490050 | Magic number (isolates this EA's orders) |
 | `InpComment` | IronwallHedge | Order comment |
-| `InpSlippage` | 30 | Max slippage (points) |
-| `InpStartDir` | START_BUY | First order direction (Buy / Sell / Auto=last candle) |
-| `InpInitialLot` | 0.01 | Base lot |
-| `InpLotMultiplier` | 2.0 | Martingale lot multiplier per level |
-| `InpMaxLot` | 5.0 | Hard cap on any single order lot |
-| `InpGridStepPoints` | 300 | Grid step / hedge distance (points) |
-| `InpMaxLevels` | 6 | Max hedge levels (risk cap) |
-| `InpTpMode` | TP_MONEY | Basket TP mode (money or net points) |
-| `InpTakeProfitMoney` | 5.0 | Basket TP in account currency |
-| `InpTakeProfitPts` | 200 | Basket TP in net points (if TP_POINTS) |
-| `InpUseAccountStop` | true | Close basket at a max floating loss |
-| `InpMaxLossMoney` | 100.0 | Max basket floating loss (money) |
-| `InpRestartAfterTP` | true | Start a new cycle after each close |
-| `InpUseSpreadFilter` | true | Skip new cycles when spread too wide |
-| `InpMaxSpreadPoints` | 60 | Max allowed spread (points) |
+| `InpSlippage` | 50 | Max slippage (points) |
+| `InpStartDir` | START_BUY | First trade direction (BUY or SELL) |
+| `InpInitialLot` | 0.01 | Base (first) lot |
+| `InpLotMultiplier` | 2.0 | Lot multiplier per re-entry |
+| `InpMaxLot` | 50.0 | Hard cap on any single order lot |
+| `InpGridStepPrice` | 2.0 | Distance between the two gates, in price ($2) |
+| `InpMaxLevels` | 15 | Max entries per cycle (safety cap) |
+| `InpTrailStartMoney` | 2.0 | Arm trailing when basket profit ≥ this (money) |
+| `InpTrailGapMoney` | 1.0 | Close if profit drops this much from its peak |
+| `InpUseHardStop` | false | Close basket at a max floating loss |
+| `InpMaxLossMoney` | 0.0 | Max basket floating loss (money, if hard stop on) |
 | `InpShowPanel` | true | Show on-chart status panel |
+| `InpDrawGates` | true | Draw the two gate lines on the chart |
 
-> **Point vs. price on gold:** on most brokers XAUUSD has 2 digits, so
-> `1 point = 0.01` and `InpGridStepPoints = 300` ≈ a **$3.00** grid step.
-> On 3-digit gold feeds the same 300 points ≈ **$0.30**. Check your symbol's
-> digits and set the grid step accordingly.
+> **`InpGridStepPrice` is in price, not points** — set it to `2.0` for a
+> `$2` gap (4310 / 4308), `3.0` for `$3`, etc. This avoids the 2-digit vs
+> 3-digit gold confusion entirely.
 
 ---
 
 ## Risk — read this
 
-This is a **martingale grid**. The math that makes it look like it "always
-recovers" in a short clip is the same math that blows accounts:
+This is a **martingale**, and the spec deliberately has **no per-trade stop**
+— lots double until the basket recovers. Be clear-eyed about what that means:
 
-- **Lots grow geometrically.** With multiplier 2.0, level 10 is `base × 1024`.
-  A base of 0.01 becomes 10.24 lots; six levels already reach ~0.64 lots.
-  A sustained one-directional trend that never retraces keeps filling the
-  losing side faster than the winning side recovers.
-- **The account stop is the only hard floor.** `InpMaxLevels` and
-  `InpMaxLossMoney` cap the damage; without them a single strong trend can
-  hit a margin call. Do **not** disable them.
-- **Backtest quality matters.** M1 gold with tight grids needs real tick data
-  and realistic spread/commission, or the tester will flatter the strategy.
-- **A profitable-looking short video is not evidence.** It shows one favorable
-  window. It does not show the run where the wall breaks.
+- **Geometric lot growth.** With multiplier 2.0, level 15 is `0.01 × 2¹⁴ =
+  163.84 lots` before the `InpMaxLot` cap. On gold, tens of lots means a `$1`
+  move is thousands of dollars. Choppy price that keeps round-tripping the two
+  gates is the worst case — it keeps doubling.
+- **The cap does not save you, it freezes you.** When `InpMaxLevels` is hit,
+  the EA stops adding and just holds. If price has trended away, the basket
+  can sit in a very large floating loss indefinitely, because the only exit is
+  a `+$2` net that may never come. Turn on `InpUseHardStop` if you want a real
+  floor — it's off by default only because you didn't ask for one.
+- **Small fixed target, unbounded risk.** You're risking a large, growing
+  drawdown to make `~$1–$2` per cycle. Most cycles win; the rare cycle that
+  doesn't can erase many winners at once. That is the martingale trade-off,
+  not a bug.
+- **Not compiled here.** MQL5 compiles only in MetaEditor (Windows/Wine),
+  unavailable in this build environment. Written against the standard MT5
+  `Trade`/`PositionInfo` API and reviewed manually — compile with F7 before
+  use.
 
-Use a **demo account**, size conservatively, and understand that positive
-expectancy here is not established — the reconstruction reproduces the
-*mechanics* shown, not a proven edge.
+Use a **demo account**, size conservatively, and understand this has **no
+established positive expectancy** — it reproduces the mechanics you specified,
+nothing more.
 
 *Provided for educational purposes only. Not financial advice.*
