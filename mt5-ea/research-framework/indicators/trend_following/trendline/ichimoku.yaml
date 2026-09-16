@@ -1,0 +1,35 @@
+# Ichimoku Kijun-sen used as the directional trend line.
+# iIchimoku buffers: 0 Tenkan, 1 Kijun, 2 SpanA, 3 SpanB, 4 Chikou. We use Kijun (index 1).
+ichimoku:
+  custom: false
+  function: "iIchimoku"
+
+  indicator_inputs:
+    InpTenkan:
+      default: 9
+      type: int
+      min: 5
+      max: 60
+      step: 1
+      optimise: true
+    InpKijun:
+      default: 26
+      type: int
+      min: 10
+      max: 120
+      step: 1
+      optimise: true
+    InpSenkou:
+      default: 52
+      type: int
+      min: 20
+      max: 240
+      step: 1
+      optimise: false
+
+  trendline_buffer_index:
+    index: 1                 # Kijun-sen
+
+  test_trend:
+    long:  "close[0] > trend_line[0] && close[1] < trend_line[0]"
+    short: "close[0] < trend_line[0] && close[1] > trend_line[0]"

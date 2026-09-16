@@ -1,0 +1,36 @@
+# Double Exponential Moving Average trend line (iMA with MODE_DEMA).
+# Same shape as the shipped ema.yaml, different MA method.
+DEMA:
+  custom: false
+  function: "iMA"
+
+  indicator_inputs:
+    InpPeriod:
+      default: 100
+      type: int
+      min: 5
+      max: 300
+      step: 1
+      optimise: true
+
+    InpShift:
+      default: 0
+      type: int
+      optimise: false
+
+    InpMAType:
+      default: MODE_DEMA
+      type: ENUM_MA_METHOD
+      optimise: false
+
+    InpAppliedPrice:
+      default: PRICE_CLOSE
+      type: int
+      optimise: false
+
+  trendline_buffer_index:
+    index: 0
+
+  test_trend:
+    long:  "close[0] > trend_line[0] && close[1] < trend_line[0]"
+    short: "close[0] < trend_line[0] && close[1] > trend_line[0]"

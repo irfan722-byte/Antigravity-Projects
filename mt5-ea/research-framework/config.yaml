@@ -1,0 +1,55 @@
+run_name: xauusd_trend                 # Project/run name (Outputs/<run_name>/...)
+pipeline: trend_following              # Pipeline to use (only trend_following ships today)
+whitelist_file: whitelist.yaml        # "whitelist.yaml" or "CART_SYMBOL_ONLY"
+
+start_date: 2019.01.01                 # In-sample/optimisation start (YYYY.MM.DD)
+end_date:   2024.01.01                 # In-sample/optimisation end   (YYYY.MM.DD)
+
+period: H1                             # Timeframe (M1,M5,M15,M30,H1,H4,D1). Your clip was M1;
+                                       # H1 is far less noisy for optimisation. Change if you insist on M1.
+
+main_chart_symbol: XAUUSD             # Primary chart symbol (see whitelist note about the broker suffix)
+currency: USD
+deposit: 1000                          # Match the account you will actually test on
+leverage: 100
+
+data_split: month                      # IS/OOS split: week | month | year
+
+risk: 1                                # % risk per trade (this pipeline is single-position, risk-based)
+sl: 1.5                                # Stop loss (ATR units, pipeline-specific)
+tp: 1                                  # Take profit (ATR units, pipeline-specific)
+
+#### Stage-specific optimisation settings ####
+# opt_criterion: 0 Balance Max, 1 Profit Factor, 2 Expected Payoff, 3 Drawdown Min,
+#                4 Recovery Factor, 5 Sharpe Ratio Max, 6 Custom Max, 7 Complex Max
+# custom_criterion (only when opt_criterion = 6): 0 WIN_LOSS_RATIO, 1 WIN_PERCENT
+opt_settings:
+  Trigger:
+    opt_criterion: 6
+    custom_criterion: 1
+    min_trade: 100
+    max_iterations: 100
+
+  Conformation:                        # NOTE: framework spells it "Conformation" - keep this spelling
+    opt_criterion: 6
+    custom_criterion: 1
+    min_trade: 100
+    max_iterations: 100
+
+  Trendline:
+    opt_criterion: 5
+    custom_criterion: 99
+    min_trade: 20
+    max_iterations: 100
+
+  Volume:
+    opt_criterion: 6
+    custom_criterion: 1
+    min_trade: 100
+    max_iterations: 100
+
+  Exit:
+    opt_criterion: 6
+    custom_criterion: 1
+    min_trade: 100
+    max_iterations: 100

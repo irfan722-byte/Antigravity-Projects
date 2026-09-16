@@ -1,0 +1,45 @@
+# Bollinger Bands (breakout of the outer band)
+# Serves Trigger, Confirmation and Exit stages (Exit = inverted trigger, handled by the framework).
+bollinger:
+  custom: false
+  function: "iBands"
+  indicator_inputs:
+    InpBandsPeriod:
+      default: 20
+      type: int
+      min: 5
+      max: 200
+      step: 1
+      optimise: true
+    InpBandsShift:
+      default: 0
+      type: int
+      optimise: false
+    InpDeviation:
+      default: 2.0
+      type: double
+      min: 0.5
+      max: 4.0
+      step: 0.1
+      optimise: true
+    InpAppliedPrice:
+      default: PRICE_CLOSE
+      type: int
+      optimise: false
+  buffers:
+    - name: Base
+      index: 0
+    - name: Upper
+      index: 1
+    - name: Lower
+      index: 2
+
+  # Trigger: price breaks out through the outer band
+  trigger_conditions:
+    long:  "close[0] > Upper[0] && close[1] <= Upper[1]"
+    short: "close[0] < Lower[0] && close[1] >= Lower[1]"
+
+  # Confirmation: price on the correct side of the middle band
+  conf_conditions:
+    long:  "close[0] > Base[0]"
+    short: "close[0] < Base[0]"
