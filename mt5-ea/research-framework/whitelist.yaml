@@ -1,0 +1,6 @@
+# Instrument universe for optimisation.
+# IMPORTANT: use the EXACT symbol name your broker uses. Your MT5 screenshots show
+# the gold symbol as "XAUUSDm" (Exness-style "m" suffix). If the name is wrong the
+# MT5 tester silently produces no trades. Check Market Watch and edit accordingly.
+whitelist:
+  - XAUUSDm
