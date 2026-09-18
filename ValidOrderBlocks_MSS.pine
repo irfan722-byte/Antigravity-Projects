@@ -1,0 +1,383 @@
+//@version=5
+// =============================================================================
+//  VALID ORDER BLOCKS  —  Liquidity Sweep + MSS + FVG (ICT-style)
+//  Only marks HIGH-PROBABILITY order blocks that pass the full checklist:
+//    1) External range liquidity swept (prior swing high/low taken)
+//    2) Market Structure Shift  (candle CLOSES beyond a swing point)
+//    3) Fair Value Gap present inside the displacement leg (imbalance)
+//    4) Order Block = last opposing candle before the displacement
+//  Plus: confidence scoring, MTF order blocks, and an MTF trend panel.
+// =============================================================================
+indicator("Valid Order Blocks — MSS + Liquidity + FVG [Premium]", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+
+// -----------------------------------------------------------------------------
+//  INPUTS
+// -----------------------------------------------------------------------------
+grpS = "① Structure Detection"
+pivotLen      = input.int(8,   "Swing Pivot Length",     minval = 2, maxval = 50, group = grpS, tooltip = "Bars left/right used to confirm a swing high / swing low. Higher = only major swings.")
+requireSweep  = input.bool(true,"Require Liquidity Sweep", group = grpS, tooltip = "Only validate an order block if external liquidity (a prior swing) was taken before the MSS.")
+sweepLookback = input.int(60,  "Sweep Lookback (bars)",  minval = 5, maxval = 300, group = grpS, tooltip = "How far back to search for the liquidity level that must be swept.")
+requireFVG    = input.bool(true,"Require Fair Value Gap", group = grpS, tooltip = "Only validate if a 3-candle imbalance (FVG) exists inside the displacement leg. Core to the MSS pattern.")
+legLookback   = input.int(15,  "Displacement Leg Lookback", minval = 3, maxval = 60, group = grpS, tooltip = "Max bars back to search for the origin (order block) of the move that broke structure.")
+
+grpF = "② Order Block Filtering"
+useConfFilter = input.bool(true, "Hide Blocks Below Min Confidence", group = grpF)
+minConf       = input.int(50, "Minimum Confidence (%)", minval = 0, maxval = 100, group = grpF, tooltip = "Order blocks scoring below this are not drawn.")
+mitigation    = input.string("Wick", "Mitigation (invalidate on)", options = ["Wick","Close"], group = grpF, tooltip = "Wick = OB removed when price wicks through it. Close = removed only on a candle close through it.")
+maxActiveOB   = input.int(8, "Max Active OBs per side", minval = 1, maxval = 30, group = grpF)
+showMitigated = input.bool(false, "Keep Mitigated OBs (faded)", group = grpF)
+
+grpM = "③ Multi-Timeframe Order Blocks"
+mtfOn   = input.bool(true,  "Show Higher-TF Order Blocks", group = grpM)
+mtfTF   = input.timeframe("60", "HTF for Order Blocks", group = grpM, tooltip = "Order blocks from this timeframe are projected onto the current chart.")
+
+grpP = "④ MTF Trend Panel"
+panelOn   = input.bool(true, "Show MTF Trend Panel", group = grpP)
+panelPos  = input.string("Top Right", "Panel Position", options = ["Top Right","Top Left","Bottom Right","Bottom Left","Middle Right"], group = grpP)
+emaLen    = input.int(50, "Trend EMA Length", minval = 5, group = grpP, tooltip = "Trend per timeframe = price above/below this EMA, plus EMA slope.")
+tf1 = input.timeframe("15",  "TF 1", group = grpP)
+tf2 = input.timeframe("60",  "TF 2", group = grpP)
+tf3 = input.timeframe("240", "TF 3", group = grpP)
+tf4 = input.timeframe("D",   "TF 4", group = grpP)
+
+grpV = "⑤ Premium Visuals"
+bullCol   = input.color(color.new(#26a69a, 0),  "Bullish OB",  group = grpV, inline = "c1")
+bearCol   = input.color(color.new(#ef5350, 0),  "Bearish OB",  group = grpV, inline = "c1")
+obTransp  = input.int(82, "OB Fill Transp", minval = 0, maxval = 100, group = grpV)
+showFVGbx = input.bool(true, "Draw FVG Boxes", group = grpV)
+bgOn      = input.bool(true, "Premium Background Tint", group = grpV, tooltip = "Subtle background shading in the direction of the active market structure.")
+bgIntens  = input.int(94, "Background Transp", minval = 80, maxval = 99, group = grpV)
+showLabels= input.bool(true, "Show OB Labels + Confidence", group = grpV)
+
+// -----------------------------------------------------------------------------
+//  HELPERS
+// -----------------------------------------------------------------------------
+f_transpColor(_c, _t) => color.new(_c, _t)
+
+// EMA-based trend classification for a given timeframe: 1 bull, -1 bear, 0 flat
+f_trendScore() =>
+    e = ta.ema(close, emaLen)
+    up = close > e and e > e[2]
+    dn = close < e and e < e[2]
+    up ? 1 : dn ? -1 : 0
+
+// -----------------------------------------------------------------------------
+//  1) SWING PIVOTS  (external range liquidity references)
+// -----------------------------------------------------------------------------
+ph = ta.pivothigh(high, pivotLen, pivotLen)
+pl = ta.pivotlow(low,  pivotLen, pivotLen)
+
+var float lastSwingHigh = na
+var float lastSwingLow  = na
+var int   lastSwingHighBar = na
+var int   lastSwingLowBar  = na
+
+if not na(ph)
+    lastSwingHigh    := ph
+    lastSwingHighBar := bar_index - pivotLen
+if not na(pl)
+    lastSwingLow    := pl
+    lastSwingLowBar := bar_index - pivotLen
+
+// Track most recent liquidity taken (a swing wicked through, within lookback)
+var float sweptLowLevel  = na   // for bullish setups: a low was swept
+var int   sweptLowBar    = na
+var float sweptHighLevel = na   // for bearish setups: a high was swept
+var int   sweptHighBar   = na
+
+// Bullish liquidity grab: price trades below a prior swing low then recovers
+if not na(lastSwingLow) and low < lastSwingLow and close > lastSwingLow and (bar_index - lastSwingLowBar) <= sweepLookback
+    sweptLowLevel := lastSwingLow
+    sweptLowBar   := bar_index
+
+// Bearish liquidity grab: price trades above a prior swing high then rejects
+if not na(lastSwingHigh) and high > lastSwingHigh and close < lastSwingHigh and (bar_index - lastSwingHighBar) <= sweepLookback
+    sweptHighLevel := lastSwingHigh
+    sweptHighBar   := bar_index
+
+// -----------------------------------------------------------------------------
+//  2) MARKET STRUCTURE SHIFT (MSS)  — close beyond a swing point
+// -----------------------------------------------------------------------------
+var float brokenHigh = na    // the swing high level that MSS closed above
+var float brokenLow  = na
+
+bullMSS = not na(lastSwingHigh) and close > lastSwingHigh and close[1] <= lastSwingHigh
+bearMSS = not na(lastSwingLow)  and close < lastSwingLow  and close[1] >= lastSwingLow
+
+// -----------------------------------------------------------------------------
+//  3) FAIR VALUE GAP inside the displacement leg
+//     Bullish FVG: low[i] > high[i+2]   (gap up)
+//     Bearish FVG: high[i] < low[i+2]   (gap down)
+// -----------------------------------------------------------------------------
+f_hasBullFVGin(_len) =>
+    bool found = false
+    float sz = 0.0
+    for i = 0 to math.min(_len, 60)
+        if low[i] > high[i + 2]
+            found := true
+            sz := math.max(sz, low[i] - high[i + 2])
+    [found, sz]
+
+f_hasBearFVGin(_len) =>
+    bool found = false
+    float sz = 0.0
+    for i = 0 to math.min(_len, 60)
+        if high[i] < low[i + 2]
+            found := true
+            sz := math.max(sz, low[i + 2] - high[i])
+    [found, sz]
+
+// -----------------------------------------------------------------------------
+//  4) LOCATE THE ORDER BLOCK CANDLE + CONFIDENCE SCORE
+//     Bullish OB = last DOWN candle before the up displacement
+//     Bearish OB = last UP  candle before the down displacement
+// -----------------------------------------------------------------------------
+atr = ta.atr(14)
+
+// Structures to persist active order blocks
+type OB
+    box   b
+    label lb
+    float top
+    float bot
+    bool  bull
+    bool  mitig
+    int   conf
+
+var array<OB> obs = array.new<OB>()
+
+f_confidence(_bull, _fvgSize, _sweep, _dispBody) =>
+    // Weighted score 0..100
+    float score = 0
+    // Displacement strength (body vs ATR) up to 35
+    score += math.min(35.0, (_dispBody / (atr + 1e-9)) * 20.0)
+    // FVG size vs ATR up to 30
+    score += math.min(30.0, (_fvgSize / (atr + 1e-9)) * 30.0)
+    // Liquidity sweep present: 25
+    score += _sweep ? 25.0 : 0.0
+    // Volume confirmation up to 10
+    volOk = volume > ta.sma(volume, 20)
+    score += volOk ? 10.0 : 0.0
+    int c = int(math.round(math.min(100.0, score)))
+    c
+
+f_confColor(_c) =>
+    _c >= 75 ? color.new(#00e676, 0) : _c >= 50 ? color.new(#ffb300, 0) : color.new(#ff5252, 0)
+
+f_confText(_c) =>
+    _c >= 75 ? "HIGH" : _c >= 50 ? "MED" : "LOW"
+
+// Find OB origin candle index within leg lookback
+f_findBullOB(_len) =>
+    int idx = na
+    for i = 1 to math.min(_len, 60)
+        if close[i] < open[i]     // last bearish candle
+            idx := i
+            break
+    idx
+
+f_findBearOB(_len) =>
+    int idx = na
+    for i = 1 to math.min(_len, 60)
+        if close[i] > open[i]     // last bullish candle
+            idx := i
+            break
+    idx
+
+// -------- Build bullish order block --------
+if bullMSS
+    sweepOk = not requireSweep or (not na(sweptLowBar) and (bar_index - sweptLowBar) <= sweepLookback)
+    [fvgOk, fvgSz] = f_hasBullFVGin(legLookback)
+    fvgPass = not requireFVG or fvgOk
+    if sweepOk and fvgPass
+        obi = f_findBullOB(legLookback)
+        if not na(obi)
+            dispBody = math.abs(close - open[obi])
+            conf = f_confidence(true, fvgSz, sweepOk, dispBody)
+            if not useConfFilter or conf >= minConf
+                float t = math.max(open[obi], high[obi])   // OB zone: candle range
+                float bo = math.min(low[obi], close[obi])
+                bx = box.new(bar_index - obi, t, bar_index + 20, bo, border_color = f_transpColor(bullCol, 30), bgcolor = f_transpColor(bullCol, obTransp), border_width = 1)
+                lbl = label(na)
+                if showLabels
+                    lbl := label.new(bar_index - obi, t, "Bull OB • " + f_confText(conf) + " " + str.tostring(conf) + "%", style = label.style_label_down, color = f_transpColor(bullCol, 15), textcolor = color.white, size = size.small)
+                o = OB.new(bx, lbl, t, bo, true, false, conf)
+                array.push(obs, o)
+
+// -------- Build bearish order block --------
+if bearMSS
+    sweepOk = not requireSweep or (not na(sweptHighBar) and (bar_index - sweptHighBar) <= sweepLookback)
+    [fvgOk, fvgSz] = f_hasBearFVGin(legLookback)
+    fvgPass = not requireFVG or fvgOk
+    if sweepOk and fvgPass
+        obi = f_findBearOB(legLookback)
+        if not na(obi)
+            dispBody = math.abs(close - open[obi])
+            conf = f_confidence(false, fvgSz, sweepOk, dispBody)
+            if not useConfFilter or conf >= minConf
+                float t = math.max(open[obi], high[obi])
+                float bo = math.min(low[obi], close[obi])
+                bx = box.new(bar_index - obi, t, bar_index + 20, bo, border_color = f_transpColor(bearCol, 30), bgcolor = f_transpColor(bearCol, obTransp), border_width = 1)
+                lbl = label(na)
+                if showLabels
+                    lbl := label.new(bar_index - obi, bo, "Bear OB • " + f_confText(conf) + " " + str.tostring(conf) + "%", style = label.style_label_up, color = f_transpColor(bearCol, 15), textcolor = color.white, size = size.small)
+                o = OB.new(bx, lbl, t, bo, false, false, conf)
+                array.push(obs, o)
+
+// -----------------------------------------------------------------------------
+//  MAINTAIN ORDER BLOCKS: extend, detect mitigation, prune
+// -----------------------------------------------------------------------------
+if array.size(obs) > 0
+    int i = array.size(obs) - 1
+    while i >= 0
+        OB o = array.get(obs, i)
+        // extend right edge to follow price
+        box.set_right(o.b, bar_index + 20)
+        // mitigation test
+        bool hit = false
+        if o.bull
+            hit := mitigation == "Close" ? close < o.bot : low < o.bot
+        else
+            hit := mitigation == "Close" ? close > o.top : high > o.top
+        if hit and not o.mitig
+            o.mitig := true
+            if showMitigated
+                box.set_bgcolor(o.b, f_transpColor(o.bull ? bullCol : bearCol, 94))
+                box.set_border_color(o.b, f_transpColor(color.gray, 60))
+            else
+                box.delete(o.b)
+                label.delete(o.lb)
+                array.remove(obs, i)
+        array.set(obs, i, o)
+        i -= 1
+
+    // enforce max active per side (remove oldest)
+    int bulls = 0
+    int bears = 0
+    for j = array.size(obs) - 1 to 0
+        OB o = array.get(obs, j)
+        if not o.mitig
+            if o.bull
+                bulls += 1
+                if bulls > maxActiveOB
+                    box.delete(o.b), label.delete(o.lb), array.remove(obs, j)
+            else
+                bears += 1
+                if bears > maxActiveOB
+                    box.delete(o.b), label.delete(o.lb), array.remove(obs, j)
+
+// -----------------------------------------------------------------------------
+//  FVG BOXES (visual confirmation of imbalance)
+// -----------------------------------------------------------------------------
+if showFVGbx
+    // bullish FVG on this bar
+    if low > high[2]
+        box.new(bar_index - 2, low, bar_index + 5, high[2], border_color = color.new(bullCol, 60), bgcolor = color.new(bullCol, 90), border_width = 1, border_style = line.style_dotted)
+    if high < low[2]
+        box.new(bar_index - 2, low[2], bar_index + 5, high, border_color = color.new(bearCol, 60), bgcolor = color.new(bearCol, 90), border_width = 1, border_style = line.style_dotted)
+
+// -----------------------------------------------------------------------------
+//  MULTI-TIMEFRAME ORDER BLOCKS  (projected from HTF)
+// -----------------------------------------------------------------------------
+// Recreate the same bullish/bearish OB detection on the HTF and pull levels.
+f_htfBullOB() =>
+    e = ta.ema(close, emaLen)
+    phH = ta.pivothigh(high, pivotLen, pivotLen)
+    mss = not na(phH[0]) ? false : (close > ta.highest(high, pivotLen)[1])
+    // simplified HTF OB: last down candle when a bullish displacement (close > prior 3-bar high) occurs
+    disp = close > ta.highest(high[1], 3)
+    float t = na
+    float b = na
+    if disp
+        for i = 1 to 20
+            if close[i] < open[i]
+                t := high[i]
+                b := low[i]
+                break
+    [t, b, disp]
+
+f_htfBearOB() =>
+    disp = close < ta.lowest(low[1], 3)
+    float t = na
+    float b = na
+    if disp
+        for i = 1 to 20
+            if close[i] > open[i]
+                t := high[i]
+                b := low[i]
+                break
+    [t, b, disp]
+
+[hBullT, hBullB, hBullDisp] = request.security(syminfo.tickerid, mtfTF, f_htfBullOB())
+[hBearT, hBearB, hBearDisp] = request.security(syminfo.tickerid, mtfTF, f_htfBearOB())
+
+var box htfBullBox = na
+var box htfBearBox = na
+
+if mtfOn
+    if hBullDisp and not na(hBullT)
+        if not na(htfBullBox)
+            box.delete(htfBullBox)
+        htfBullBox := box.new(bar_index - 30, hBullT, bar_index + 20, hBullB, border_color = color.new(bullCol, 10), bgcolor = color.new(bullCol, 88), border_width = 2, border_style = line.style_dashed, text = mtfTF + " Bull OB", text_color = color.new(bullCol, 0), text_size = size.small, text_halign = text.align_left)
+    if hBearDisp and not na(hBearT)
+        if not na(htfBearBox)
+            box.delete(htfBearBox)
+        htfBearBox := box.new(bar_index - 30, hBearT, bar_index + 20, hBearB, border_color = color.new(bearCol, 10), bgcolor = color.new(bearCol, 88), border_width = 2, border_style = line.style_dashed, text = mtfTF + " Bear OB", text_color = color.new(bearCol, 0), text_size = size.small, text_halign = text.align_left)
+    if not na(htfBullBox)
+        box.set_right(htfBullBox, bar_index + 20)
+    if not na(htfBearBox)
+        box.set_right(htfBearBox, bar_index + 20)
+
+// -----------------------------------------------------------------------------
+//  PREMIUM BACKGROUND TINT (follows active structure bias)
+// -----------------------------------------------------------------------------
+var int structBias = 0
+if bullMSS
+    structBias := 1
+if bearMSS
+    structBias := -1
+
+bgcolor(bgOn ? (structBias == 1 ? color.new(bullCol, bgIntens) : structBias == -1 ? color.new(bearCol, bgIntens) : na) : na)
+
+// -----------------------------------------------------------------------------
+//  MTF TREND PANEL
+// -----------------------------------------------------------------------------
+t1 = request.security(syminfo.tickerid, tf1, f_trendScore())
+t2 = request.security(syminfo.tickerid, tf2, f_trendScore())
+t3 = request.security(syminfo.tickerid, tf3, f_trendScore())
+t4 = request.security(syminfo.tickerid, tf4, f_trendScore())
+
+f_trendTxt(_s) => _s == 1 ? "▲ BULL" : _s == -1 ? "▼ BEAR" : "► FLAT"
+f_trendCol(_s) => _s == 1 ? color.new(#26a69a, 0) : _s == -1 ? color.new(#ef5350, 0) : color.new(color.gray, 0)
+
+var table panel = na
+if panelOn and barstate.islast
+    pos = panelPos == "Top Right" ? position.top_right : panelPos == "Top Left" ? position.top_left : panelPos == "Bottom Right" ? position.bottom_right : panelPos == "Bottom Left" ? position.bottom_left : position.middle_right
+    if not na(panel)
+        table.delete(panel)
+    panel := table.new(pos, 2, 6, bgcolor = color.new(#0e1621, 12), border_color = color.new(color.gray, 60), border_width = 1, frame_color = color.new(color.gray, 40), frame_width = 1)
+
+    table.cell(panel, 0, 0, "MTF TREND", text_color = color.white, bgcolor = color.new(#1c2733, 0), text_size = size.normal)
+    net = t1 + t2 + t3 + t4
+    biasTxt = net >= 2 ? "STRONG BULL" : net <= -2 ? "STRONG BEAR" : net > 0 ? "BULL" : net < 0 ? "BEAR" : "MIXED"
+    biasCol = net >= 2 ? color.new(#00e676,0) : net <= -2 ? color.new(#ff5252,0) : net > 0 ? color.new(#26a69a,0) : net < 0 ? color.new(#ef5350,0) : color.new(color.gray,0)
+    table.cell(panel, 1, 0, biasTxt, text_color = color.white, bgcolor = biasCol, text_size = size.normal)
+
+    table.cell(panel, 0, 1, tf1, text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 1, f_trendTxt(t1), text_color = color.white, bgcolor = f_trendCol(t1), text_size = size.small)
+    table.cell(panel, 0, 2, tf2, text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 2, f_trendTxt(t2), text_color = color.white, bgcolor = f_trendCol(t2), text_size = size.small)
+    table.cell(panel, 0, 3, tf3, text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 3, f_trendTxt(t3), text_color = color.white, bgcolor = f_trendCol(t3), text_size = size.small)
+    table.cell(panel, 0, 4, tf4, text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 4, f_trendTxt(t4), text_color = color.white, bgcolor = f_trendCol(t4), text_size = size.small)
+
+    strTxt = structBias == 1 ? "BULL MSS" : structBias == -1 ? "BEAR MSS" : "—"
+    table.cell(panel, 0, 5, "Structure", text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 5, strTxt, text_color = color.white, bgcolor = structBias == 1 ? color.new(#26a69a,0) : structBias == -1 ? color.new(#ef5350,0) : color.new(color.gray,0), text_size = size.small)
+
+// -----------------------------------------------------------------------------
+//  ALERTS
+// -----------------------------------------------------------------------------
+alertcondition(bullMSS, "Bullish MSS + OB", "Valid bullish order block formed (MSS + liquidity + FVG).")
+alertcondition(bearMSS, "Bearish MSS + OB", "Valid bearish order block formed (MSS + liquidity + FVG).")
