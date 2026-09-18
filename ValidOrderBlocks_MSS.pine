@@ -112,7 +112,7 @@ bearMSS = not na(lastSwingLow)  and close < lastSwingLow  and close[1] >= lastSw
 f_hasBullFVGin(_len) =>
     bool found = false
     float sz = 0.0
-    for i = 0 to math.min(_len, 60)
+    for i = 0 to int(math.min(_len, 60))
         if low[i] > high[i + 2]
             found := true
             sz := math.max(sz, low[i] - high[i + 2])
@@ -121,7 +121,7 @@ f_hasBullFVGin(_len) =>
 f_hasBearFVGin(_len) =>
     bool found = false
     float sz = 0.0
-    for i = 0 to math.min(_len, 60)
+    for i = 0 to int(math.min(_len, 60))
         if high[i] < low[i + 2]
             found := true
             sz := math.max(sz, low[i + 2] - high[i])
@@ -170,7 +170,7 @@ f_confText(_c) =>
 // Find OB origin candle index within leg lookback
 f_findBullOB(_len) =>
     int idx = na
-    for i = 1 to math.min(_len, 60)
+    for i = 1 to int(math.min(_len, 60))
         if close[i] < open[i]     // last bearish candle
             idx := i
             break
@@ -178,7 +178,7 @@ f_findBullOB(_len) =>
 
 f_findBearOB(_len) =>
     int idx = na
-    for i = 1 to math.min(_len, 60)
+    for i = 1 to int(math.min(_len, 60))
         if close[i] > open[i]     // last bullish candle
             idx := i
             break
@@ -198,7 +198,7 @@ if bullMSS
                 float t = math.max(open[obi], high[obi])   // OB zone: candle range
                 float bo = math.min(low[obi], close[obi])
                 bx = box.new(bar_index - obi, t, bar_index + 20, bo, border_color = f_transpColor(bullCol, 30), bgcolor = f_transpColor(bullCol, obTransp), border_width = 1)
-                lbl = label(na)
+                label lbl = na
                 if showLabels
                     lbl := label.new(bar_index - obi, t, "Bull OB • " + f_confText(conf) + " " + str.tostring(conf) + "%", style = label.style_label_down, color = f_transpColor(bullCol, 15), textcolor = color.white, size = size.small)
                 o = OB.new(bx, lbl, t, bo, true, false, conf)
@@ -218,7 +218,7 @@ if bearMSS
                 float t = math.max(open[obi], high[obi])
                 float bo = math.min(low[obi], close[obi])
                 bx = box.new(bar_index - obi, t, bar_index + 20, bo, border_color = f_transpColor(bearCol, 30), bgcolor = f_transpColor(bearCol, obTransp), border_width = 1)
-                lbl = label(na)
+                label lbl = na
                 if showLabels
                     lbl := label.new(bar_index - obi, bo, "Bear OB • " + f_confText(conf) + " " + str.tostring(conf) + "%", style = label.style_label_up, color = f_transpColor(bearCol, 15), textcolor = color.white, size = size.small)
                 o = OB.new(bx, lbl, t, bo, false, false, conf)
@@ -228,43 +228,40 @@ if bearMSS
 //  MAINTAIN ORDER BLOCKS: extend, detect mitigation, prune
 // -----------------------------------------------------------------------------
 if array.size(obs) > 0
-    int i = array.size(obs) - 1
-    while i >= 0
-        OB o = array.get(obs, i)
-        // extend right edge to follow price
-        box.set_right(o.b, bar_index + 20)
-        // mitigation test
-        bool hit = false
-        if o.bull
-            hit := mitigation == "Close" ? close < o.bot : low < o.bot
-        else
-            hit := mitigation == "Close" ? close > o.top : high > o.top
+    array<OB> keep = array.new<OB>()
+    int bulls = 0
+    int bears = 0
+    // iterate newest-first so per-side caps retain the most recent blocks
+    for idx = array.size(obs) - 1 to 0
+        OB o = array.get(obs, idx)
+        box.set_right(o.b, bar_index + 20)          // extend right edge to follow price
+        bool hit = o.bull ? (mitigation == "Close" ? close < o.bot : low < o.bot) : (mitigation == "Close" ? close > o.top : high > o.top)
+        bool drop = false
         if hit and not o.mitig
             o.mitig := true
             if showMitigated
                 box.set_bgcolor(o.b, f_transpColor(o.bull ? bullCol : bearCol, 94))
                 box.set_border_color(o.b, f_transpColor(color.gray, 60))
-            else
-                box.delete(o.b)
                 label.delete(o.lb)
-                array.remove(obs, i)
-        array.set(obs, i, o)
-        i -= 1
-
-    // enforce max active per side (remove oldest)
-    int bulls = 0
-    int bears = 0
-    for j = array.size(obs) - 1 to 0
-        OB o = array.get(obs, j)
-        if not o.mitig
+            else
+                drop := true
+        if not drop and not o.mitig
             if o.bull
                 bulls += 1
-                if bulls > maxActiveOB
-                    box.delete(o.b), label.delete(o.lb), array.remove(obs, j)
+                drop := bulls > maxActiveOB
             else
                 bears += 1
-                if bears > maxActiveOB
-                    box.delete(o.b), label.delete(o.lb), array.remove(obs, j)
+                drop := bears > maxActiveOB
+        if drop
+            box.delete(o.b)
+            label.delete(o.lb)
+        else
+            array.push(keep, o)
+    // rebuild obs in original (oldest-first) order
+    array.clear(obs)
+    if array.size(keep) > 0
+        for k = array.size(keep) - 1 to 0
+            array.push(obs, array.get(keep, k))
 
 // -----------------------------------------------------------------------------
 //  FVG BOXES (visual confirmation of imbalance)
