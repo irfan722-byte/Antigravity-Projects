@@ -48,6 +48,9 @@ showFVGbx = input.bool(true, "Draw FVG Boxes", group = grpV)
 bgOn      = input.bool(true, "Premium Background Tint", group = grpV, tooltip = "Subtle background shading in the direction of the active market structure.")
 bgIntens  = input.int(94, "Background Transp", minval = 80, maxval = 99, group = grpV)
 showLabels= input.bool(true, "Show OB Labels + Confidence", group = grpV)
+showSwings = input.bool(true, "Show Swing High/Low Lines", group = grpV)
+swingHiCol = input.color(color.new(#ef5350, 20), "Swing High Line", group = grpV, inline = "sw")
+swingLoCol = input.color(color.new(#26a69a, 20), "Swing Low Line",  group = grpV, inline = "sw")
 
 // -----------------------------------------------------------------------------
 //  HELPERS
@@ -103,6 +106,29 @@ var float brokenLow  = na
 
 bullMSS = not na(lastSwingHigh) and close > lastSwingHigh and close[1] <= lastSwingHigh
 bearMSS = not na(lastSwingLow)  and close < lastSwingLow  and close[1] >= lastSwingLow
+
+// Swing High / Low reference lines (rolling, follow the current active swing)
+var line  shLine = na
+var label shLbl  = na
+var line  slLine = na
+var label slLbl  = na
+if showSwings
+    if not na(lastSwingHigh)
+        if na(shLine)
+            shLine := line.new(lastSwingHighBar, lastSwingHigh, bar_index, lastSwingHigh, color = swingHiCol, style = line.style_dashed, width = 1)
+            shLbl  := label.new(bar_index, lastSwingHigh, "SH", style = label.style_label_left, color = color.new(swingHiCol, 100), textcolor = swingHiCol, size = size.small)
+        else
+            line.set_xy1(shLine, lastSwingHighBar, lastSwingHigh)
+            line.set_xy2(shLine, bar_index, lastSwingHigh)
+            label.set_xy(shLbl, bar_index, lastSwingHigh)
+    if not na(lastSwingLow)
+        if na(slLine)
+            slLine := line.new(lastSwingLowBar, lastSwingLow, bar_index, lastSwingLow, color = swingLoCol, style = line.style_dashed, width = 1)
+            slLbl  := label.new(bar_index, lastSwingLow, "SL", style = label.style_label_left, color = color.new(swingLoCol, 100), textcolor = swingLoCol, size = size.small)
+        else
+            line.set_xy1(slLine, lastSwingLowBar, lastSwingLow)
+            line.set_xy2(slLine, bar_index, lastSwingLow)
+            label.set_xy(slLbl, bar_index, lastSwingLow)
 
 // -----------------------------------------------------------------------------
 //  3) FAIR VALUE GAP inside the displacement leg
@@ -197,10 +223,9 @@ if bullMSS
             if not useConfFilter or conf >= minConf
                 float t = math.max(open[obi], high[obi])   // OB zone: candle range
                 float bo = math.min(low[obi], close[obi])
-                bx = box.new(bar_index - obi, t, bar_index + 20, bo, border_color = f_transpColor(bullCol, 30), bgcolor = f_transpColor(bullCol, obTransp), border_width = 1)
                 label lbl = na
-                if showLabels
-                    lbl := label.new(bar_index - obi, t, "Bull OB • " + f_confText(conf) + " " + str.tostring(conf) + "%", style = label.style_label_down, color = f_transpColor(bullCol, 15), textcolor = color.white, size = size.small)
+                string obTxt = showLabels ? (str.tostring(conf) + "%  " + f_confText(conf)) : ""
+                bx = box.new(bar_index - obi, t, bar_index + 20, bo, border_color = f_transpColor(bullCol, 30), bgcolor = f_transpColor(bullCol, obTransp), border_width = 1, text = obTxt, text_color = color.white, text_size = size.small, text_halign = text.align_right, text_valign = text.align_center)
                 o = OB.new(bx, lbl, t, bo, true, false, conf)
                 array.push(obs, o)
 
@@ -217,10 +242,9 @@ if bearMSS
             if not useConfFilter or conf >= minConf
                 float t = math.max(open[obi], high[obi])
                 float bo = math.min(low[obi], close[obi])
-                bx = box.new(bar_index - obi, t, bar_index + 20, bo, border_color = f_transpColor(bearCol, 30), bgcolor = f_transpColor(bearCol, obTransp), border_width = 1)
                 label lbl = na
-                if showLabels
-                    lbl := label.new(bar_index - obi, bo, "Bear OB • " + f_confText(conf) + " " + str.tostring(conf) + "%", style = label.style_label_up, color = f_transpColor(bearCol, 15), textcolor = color.white, size = size.small)
+                string obTxt = showLabels ? (str.tostring(conf) + "%  " + f_confText(conf)) : ""
+                bx = box.new(bar_index - obi, t, bar_index + 20, bo, border_color = f_transpColor(bearCol, 30), bgcolor = f_transpColor(bearCol, obTransp), border_width = 1, text = obTxt, text_color = color.white, text_size = size.small, text_halign = text.align_right, text_valign = text.align_center)
                 o = OB.new(bx, lbl, t, bo, false, false, conf)
                 array.push(obs, o)
 
