@@ -1,0 +1,155 @@
+//@version=5
+// =============================================================================
+//  HIGHER HIGH / LOWER LOW — LIVE (ZigZag)
+//  Live market-structure labeling built on a ZigZag: HH / HL / LH / LL,
+//  optional Support/Resistance, OB/OS colour shift, and S/R-break bar colour.
+//  Companion to the "Valid Order Blocks" indicator — run both together.
+// =============================================================================
+indicator("Higher High Lower Low — Live [ZigZag]", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+// -----------------------------------------------------------------------------
+//  INPUTS  (mirrors the requested settings, all adjustable)
+// -----------------------------------------------------------------------------
+zzPeriod = input.int(20, "ZigZag Period", minval = 2, maxval = 100, tooltip = "Left/right bars used to confirm each ZigZag pivot. Higher = fewer, larger swings.")
+srcMode  = input.string("High/Low", "Source", options = ["High/Low","Close"], tooltip = "High/Low uses wicks for pivots; Close uses closing prices.")
+showMode = input.string("ZigZag", "Show", options = ["ZigZag","None"], tooltip = "Draw the connecting ZigZag line, or hide it and keep only labels.")
+showHHLL = input.bool(true,  "Show HH/LL")
+showSR   = input.bool(false, "Show Support/Resistance")
+barColSR = input.bool(false, "Change Bar Color if S/R Broken")
+theme    = input.string("Green/Red", "Color Theme", options = ["Green/Red","Blue/Orange","White/Gray"])
+upColIn  = input.color(color.new(#00e676, 0), "Zigzag Up Color")
+dnColIn  = input.color(color.new(#ff5252, 0), "Zigzag Down Color")
+useOBOS  = input.bool(true, "Change Color in OB/OS Levels", tooltip = "Recolor the ZigZag when RSI is overbought/oversold.")
+obLevel  = input.int(65, "Overbought Level", minval = 50, maxval = 100)
+osLevel  = input.int(35, "Oversold Level",   minval = 0,  maxval = 50)
+
+grpST    = "Style"
+zzWidth  = input.int(2, "ZigZag Width", minval = 1, maxval = 6, group = grpST)
+lblSize  = input.string("Small", "Label Size", options = ["Tiny","Small","Normal","Large"], group = grpST)
+showVal  = input.bool(true, "Show Price Value on Label", group = grpST)
+rsiLen   = input.int(14, "RSI Length (OB/OS)", minval = 2, group = grpST)
+srCol    = input.color(color.new(color.gray, 0), "S/R Line Color", group = grpST, inline = "sr")
+srStyle  = input.string("Dashed", "S/R Style", options = ["Solid","Dashed","Dotted"], group = grpST, inline = "sr")
+
+// -----------------------------------------------------------------------------
+//  HELPERS
+// -----------------------------------------------------------------------------
+f_size(_s) => _s == "Tiny" ? size.tiny : _s == "Normal" ? size.normal : _s == "Large" ? size.large : size.small
+f_ls(_s)   => _s == "Dashed" ? line.style_dashed : _s == "Dotted" ? line.style_dotted : line.style_solid
+
+// Theme -> base colours. "Green/Red" honours the two colour pickers.
+upBase = theme == "Blue/Orange" ? color.new(#2196f3, 0) : theme == "White/Gray" ? color.new(#ffffff, 0) : upColIn
+dnBase = theme == "Blue/Orange" ? color.new(#ff9800, 0) : theme == "White/Gray" ? color.new(#9e9e9e, 0) : dnColIn
+
+srcH = srcMode == "Close" ? close : high
+srcL = srcMode == "Close" ? close : low
+
+ph = ta.pivothigh(srcH, zzPeriod, zzPeriod)
+pl = ta.pivotlow(srcL, zzPeriod, zzPeriod)
+rsi = ta.rsi(close, rsiLen)
+
+f_segColor(_up) =>
+    color col = _up ? upBase : dnBase
+    if useOBOS
+        col := rsi > obLevel ? color.new(dnBase, 0) : rsi < osLevel ? color.new(upBase, 0) : col
+    col
+
+// -----------------------------------------------------------------------------
+//  ZIGZAG STATE MACHINE
+//  pivDir: 1 = last pivot was a high, -1 = last pivot was a low, 0 = none
+// -----------------------------------------------------------------------------
+var float pivPrice = na
+var int   pivBar   = na
+var int   pivDir   = 0
+var float prevHigh = na
+var float prevLow  = na
+var line  zzSeg    = na
+
+// ---- HIGH pivot ----
+if not na(ph)
+    float curP = ph
+    int   curB = bar_index - zzPeriod
+    if pivDir <= 0
+        // direction change (or first pivot) -> new up leg
+        if pivDir == -1 and showMode == "ZigZag" and not na(pivBar)
+            zzSeg := line.new(pivBar, pivPrice, curB, curP, color = f_segColor(true), width = zzWidth)
+        if showHHLL
+            bool isHH = na(prevHigh) or curP > prevHigh
+            string txt = (isHH ? "HH" : "LH") + (showVal ? "  " + str.tostring(curP, format.mintick) : "")
+            label.new(curB, curP, txt, style = label.style_label_down, color = color.new(isHH ? upBase : dnBase, 20), textcolor = color.white, size = f_size(lblSize))
+        prevHigh := curP
+        pivPrice := curP
+        pivBar   := curB
+        pivDir   := 1
+    else
+        // still in an up leg -> extend to the higher high
+        if curP > pivPrice
+            if showMode == "ZigZag" and not na(zzSeg)
+                line.set_xy2(zzSeg, curB, curP)
+            pivPrice := curP
+            pivBar   := curB
+            prevHigh := curP
+
+// ---- LOW pivot ----
+if not na(pl)
+    float curP = pl
+    int   curB = bar_index - zzPeriod
+    if pivDir >= 0
+        // direction change (or first pivot) -> new down leg
+        if pivDir == 1 and showMode == "ZigZag" and not na(pivBar)
+            zzSeg := line.new(pivBar, pivPrice, curB, curP, color = f_segColor(false), width = zzWidth)
+        if showHHLL
+            bool isLL = na(prevLow) or curP < prevLow
+            string txt = (isLL ? "LL" : "HL") + (showVal ? "  " + str.tostring(curP, format.mintick) : "")
+            label.new(curB, curP, txt, style = label.style_label_up, color = color.new(isLL ? dnBase : upBase, 20), textcolor = color.white, size = f_size(lblSize))
+        prevLow  := curP
+        pivPrice := curP
+        pivBar   := curB
+        pivDir   := -1
+    else
+        // still in a down leg -> extend to the lower low
+        if curP < pivPrice
+            if showMode == "ZigZag" and not na(zzSeg)
+                line.set_xy2(zzSeg, curB, curP)
+            pivPrice := curP
+            pivBar   := curB
+            prevLow  := curP
+
+// -----------------------------------------------------------------------------
+//  SUPPORT / RESISTANCE  (latest confirmed high = resistance, low = support)
+// -----------------------------------------------------------------------------
+var float resLvl = na
+var float supLvl = na
+if not na(ph)
+    resLvl := ph
+if not na(pl)
+    supLvl := pl
+
+var line resLine = na
+var line supLine = na
+if showSR
+    if not na(resLvl)
+        if na(resLine)
+            resLine := line.new(bar_index - 1, resLvl, bar_index, resLvl, color = srCol, style = f_ls(srStyle), width = 1, extend = extend.right)
+        else
+            line.set_xy1(resLine, bar_index - 1, resLvl)
+            line.set_xy2(resLine, bar_index, resLvl)
+    if not na(supLvl)
+        if na(supLine)
+            supLine := line.new(bar_index - 1, supLvl, bar_index, supLvl, color = srCol, style = f_ls(srStyle), width = 1, extend = extend.right)
+        else
+            line.set_xy1(supLine, bar_index - 1, supLvl)
+            line.set_xy2(supLine, bar_index, supLvl)
+
+// -----------------------------------------------------------------------------
+//  BAR COLOUR ON S/R BREAK
+// -----------------------------------------------------------------------------
+brokeUp = barColSR and not na(resLvl) and close > resLvl
+brokeDn = barColSR and not na(supLvl) and close < supLvl
+barcolor(barColSR ? (brokeUp ? upBase : brokeDn ? dnBase : na) : na)
+
+// -----------------------------------------------------------------------------
+//  ALERTS
+// -----------------------------------------------------------------------------
+alertcondition(not na(ph), "New Swing High", "ZigZag confirmed a new swing high.")
+alertcondition(not na(pl), "New Swing Low",  "ZigZag confirmed a new swing low.")
