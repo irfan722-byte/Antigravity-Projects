@@ -1,12 +1,8 @@
 //@version=5
 // =============================================================================
-//  VALID ORDER BLOCKS  —  Liquidity Sweep + MSS + FVG (ICT-style)
-//  Only marks HIGH-PROBABILITY order blocks that pass the full checklist:
-//    1) External range liquidity swept (prior swing high/low taken)
-//    2) Market Structure Shift  (candle CLOSES beyond a swing point)
-//    3) Fair Value Gap present inside the displacement leg (imbalance)
-//    4) Order Block = last opposing candle before the displacement
-//  Plus: confidence scoring, MTF order blocks, and an MTF trend panel.
+//  VALID ORDER BLOCKS  —  Liquidity Sweep + MSS + FVG (ICT-style) [Premium]
+//  Valid OBs (sweep -> MSS close -> FVG -> last opposing candle) + confidence,
+//  MTF order blocks, MTF trend panel, swing lines, live HH/LL, full styling.
 // =============================================================================
 indicator("Valid Order Blocks — MSS + Liquidity + FVG [Premium]", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
 
@@ -15,49 +11,73 @@ indicator("Valid Order Blocks — MSS + Liquidity + FVG [Premium]", overlay = tr
 // -----------------------------------------------------------------------------
 grpS = "① Structure Detection"
 pivotLen      = input.int(8,   "Swing Pivot Length",     minval = 2, maxval = 50, group = grpS, tooltip = "Bars left/right used to confirm a swing high / swing low. Higher = only major swings.")
-requireSweep  = input.bool(true,"Require Liquidity Sweep", group = grpS, tooltip = "Only validate an order block if external liquidity (a prior swing) was taken before the MSS.")
-sweepLookback = input.int(60,  "Sweep Lookback (bars)",  minval = 5, maxval = 300, group = grpS, tooltip = "How far back to search for the liquidity level that must be swept.")
-requireFVG    = input.bool(true,"Require Fair Value Gap", group = grpS, tooltip = "Only validate if a 3-candle imbalance (FVG) exists inside the displacement leg. Core to the MSS pattern.")
-legLookback   = input.int(15,  "Displacement Leg Lookback", minval = 3, maxval = 60, group = grpS, tooltip = "Max bars back to search for the origin (order block) of the move that broke structure.")
+requireSweep  = input.bool(true,"Require Liquidity Sweep", group = grpS)
+sweepLookback = input.int(60,  "Sweep Lookback (bars)",  minval = 5, maxval = 300, group = grpS)
+requireFVG    = input.bool(true,"Require Fair Value Gap", group = grpS)
+legLookback   = input.int(15,  "Displacement Leg Lookback", minval = 3, maxval = 60, group = grpS)
 
 grpF = "② Order Block Filtering"
 useConfFilter = input.bool(true, "Hide Blocks Below Min Confidence", group = grpF)
-minConf       = input.int(50, "Minimum Confidence (%)", minval = 0, maxval = 100, group = grpF, tooltip = "Order blocks scoring below this are not drawn.")
-mitigation    = input.string("Wick", "Mitigation (invalidate on)", options = ["Wick","Close"], group = grpF, tooltip = "Wick = OB removed when price wicks through it. Close = removed only on a candle close through it.")
+minConf       = input.int(50, "Minimum Confidence (%)", minval = 0, maxval = 100, group = grpF)
+mitigation    = input.string("Wick", "Mitigation (invalidate on)", options = ["Wick","Close"], group = grpF)
 maxActiveOB   = input.int(8, "Max Active OBs per side", minval = 1, maxval = 30, group = grpF)
 showMitigated = input.bool(false, "Keep Mitigated OBs (faded)", group = grpF)
 
 grpM = "③ Multi-Timeframe Order Blocks"
 mtfOn   = input.bool(true,  "Show Higher-TF Order Blocks", group = grpM)
-mtfTF   = input.timeframe("60", "HTF for Order Blocks", group = grpM, tooltip = "Order blocks from this timeframe are projected onto the current chart.")
+mtfTF   = input.timeframe("60", "HTF for Order Blocks", group = grpM)
 
 grpP = "④ MTF Trend Panel"
 panelOn   = input.bool(true, "Show MTF Trend Panel", group = grpP)
 panelPos  = input.string("Top Right", "Panel Position", options = ["Top Right","Top Left","Bottom Right","Bottom Left","Middle Right"], group = grpP)
-emaLen    = input.int(50, "Trend EMA Length", minval = 5, group = grpP, tooltip = "Trend per timeframe = price above/below this EMA, plus EMA slope.")
+emaLen    = input.int(50, "Trend EMA Length", minval = 5, group = grpP)
 tf1 = input.timeframe("15",  "TF 1", group = grpP)
 tf2 = input.timeframe("60",  "TF 2", group = grpP)
 tf3 = input.timeframe("240", "TF 3", group = grpP)
 tf4 = input.timeframe("D",   "TF 4", group = grpP)
 
-grpV = "⑤ Premium Visuals"
+grpV = "⑤ Visuals & Colors"
 bullCol   = input.color(color.new(#26a69a, 0),  "Bullish OB",  group = grpV, inline = "c1")
 bearCol   = input.color(color.new(#ef5350, 0),  "Bearish OB",  group = grpV, inline = "c1")
 obTransp  = input.int(82, "OB Fill Transp", minval = 0, maxval = 100, group = grpV)
 showFVGbx = input.bool(true, "Draw FVG Boxes", group = grpV)
-bgOn      = input.bool(true, "Premium Background Tint", group = grpV, tooltip = "Subtle background shading in the direction of the active market structure.")
+fvgBullCol= input.color(color.new(#26a69a, 60), "FVG Bull", group = grpV, inline = "fvgc")
+fvgBearCol= input.color(color.new(#ef5350, 60), "FVG Bear", group = grpV, inline = "fvgc")
+bgOn      = input.bool(true, "Premium Background Tint", group = grpV)
+bgBullCol = input.color(#26a69a, "BG Bull", group = grpV, inline = "bgc")
+bgBearCol = input.color(#ef5350, "BG Bear", group = grpV, inline = "bgc")
 bgIntens  = input.int(94, "Background Transp", minval = 80, maxval = 99, group = grpV)
-showLabels= input.bool(true, "Show OB Labels + Confidence", group = grpV)
+showLabels= input.bool(true, "Show OB Confidence Text", group = grpV)
 showSwings = input.bool(true, "Show Swing High/Low Lines", group = grpV)
 swingHiCol = input.color(color.new(#ef5350, 20), "Swing High Line", group = grpV, inline = "sw")
 swingLoCol = input.color(color.new(#26a69a, 20), "Swing Low Line",  group = grpV, inline = "sw")
+
+grpH = "⑥ Higher-High / Lower-Low"
+showHHLL   = input.bool(true, "Show Live HH / LL Markers", group = grpH)
+hhCol      = input.color(color.new(#26a69a, 0), "Higher High", group = grpH, inline = "hl")
+llCol      = input.color(color.new(#ef5350, 0), "Lower Low",   group = grpH, inline = "hl")
+hhllShowVal= input.bool(true, "Show Price Value on Marker", group = grpH)
+hhllLine   = input.bool(true, "Draw Live HH/LL Level Lines", group = grpH, tooltip = "Extend a horizontal line at the most recent HH and LL up to the current bar, updating live.")
+
+grpST = "⑦ Global Styling"
+obBorderW  = input.int(1, "OB Border Width",  minval = 1, maxval = 5, group = grpST)
+obTextSz   = input.string("Small",  "OB Text Size",    options = ["Tiny","Small","Normal","Large"], group = grpST)
+swingStyle = input.string("Dashed", "Swing Line Style", options = ["Solid","Dashed","Dotted"], group = grpST, inline = "sw2")
+swingWidth = input.int(1, "Width", minval = 1, maxval = 5, group = grpST, inline = "sw2")
+swingTagSz = input.string("Small",  "Swing/HHLL Tag Size", options = ["Tiny","Small","Normal","Large"], group = grpST)
+fvgStyle   = input.string("Dotted", "FVG Border Style", options = ["Solid","Dashed","Dotted"], group = grpST, inline = "fv")
+fvgBorderW = input.int(1, "Width", minval = 1, maxval = 5, group = grpST, inline = "fv")
+htfStyle   = input.string("Dashed", "HTF OB Style", options = ["Solid","Dashed","Dotted"], group = grpST, inline = "ht")
+htfBorderW = input.int(2, "Width", minval = 1, maxval = 5, group = grpST, inline = "ht")
+panelTextSz= input.string("Normal", "Panel Text Size", options = ["Tiny","Small","Normal","Large"], group = grpST)
 
 // -----------------------------------------------------------------------------
 //  HELPERS
 // -----------------------------------------------------------------------------
 f_transpColor(_c, _t) => color.new(_c, _t)
+f_lineStyle(_s) => _s == "Dashed" ? line.style_dashed : _s == "Dotted" ? line.style_dotted : line.style_solid
+f_size(_s)      => _s == "Tiny" ? size.tiny : _s == "Normal" ? size.normal : _s == "Large" ? size.large : size.small
 
-// EMA-based trend classification for a given timeframe: 1 bull, -1 bear, 0 flat
 f_trendScore() =>
     e = ta.ema(close, emaLen)
     up = close > e and e > e[2]
@@ -65,7 +85,7 @@ f_trendScore() =>
     up ? 1 : dn ? -1 : 0
 
 // -----------------------------------------------------------------------------
-//  1) SWING PIVOTS  (external range liquidity references)
+//  1) SWING PIVOTS
 // -----------------------------------------------------------------------------
 ph = ta.pivothigh(high, pivotLen, pivotLen)
 pl = ta.pivotlow(low,  pivotLen, pivotLen)
@@ -82,32 +102,68 @@ if not na(pl)
     lastSwingLow    := pl
     lastSwingLowBar := bar_index - pivotLen
 
-// Track most recent liquidity taken (a swing wicked through, within lookback)
-var float sweptLowLevel  = na   // for bullish setups: a low was swept
-var int   sweptLowBar    = na
-var float sweptHighLevel = na   // for bearish setups: a high was swept
-var int   sweptHighBar   = na
+// -----------------------------------------------------------------------------
+//  HIGHER-HIGH / LOWER-LOW classification (marker on each qualifying swing)
+// -----------------------------------------------------------------------------
+var float prevPH = na
+var float prevPL = na
+var float lastHH = na
+var float lastLL = na
+var int   hhBar  = na
+var int   llBar  = na
 
-// Bullish liquidity grab: price trades below a prior swing low then recovers
+if not na(ph)
+    if not na(prevPH) and ph > prevPH
+        lastHH := ph
+        hhBar  := bar_index - pivotLen
+        if showHHLL
+            string tx = hhllShowVal ? "HH  " + str.tostring(ph, format.mintick) : "HH"
+            label.new(bar_index - pivotLen, ph, tx, style = label.style_label_down, color = f_transpColor(hhCol, 15), textcolor = color.white, size = f_size(swingTagSz))
+    prevPH := ph
+
+if not na(pl)
+    if not na(prevPL) and pl < prevPL
+        lastLL := pl
+        llBar  := bar_index - pivotLen
+        if showHHLL
+            string tx = hhllShowVal ? "LL  " + str.tostring(pl, format.mintick) : "LL"
+            label.new(bar_index - pivotLen, pl, tx, style = label.style_label_up, color = f_transpColor(llCol, 15), textcolor = color.white, size = f_size(swingTagSz))
+    prevPL := pl
+
+// Live HH / LL level lines (extend to current bar each bar)
+var line hhLine = na
+var line llLine = na
+if hhllLine and showHHLL
+    if not na(lastHH)
+        if na(hhLine)
+            hhLine := line.new(hhBar, lastHH, bar_index, lastHH, color = hhCol, style = f_lineStyle(swingStyle), width = swingWidth)
+        else
+            line.set_xy1(hhLine, hhBar, lastHH)
+            line.set_xy2(hhLine, bar_index, lastHH)
+    if not na(lastLL)
+        if na(llLine)
+            llLine := line.new(llBar, lastLL, bar_index, lastLL, color = llCol, style = f_lineStyle(swingStyle), width = swingWidth)
+        else
+            line.set_xy1(llLine, llBar, lastLL)
+            line.set_xy2(llLine, bar_index, lastLL)
+
+// -----------------------------------------------------------------------------
+//  LIQUIDITY SWEEP tracking
+// -----------------------------------------------------------------------------
+var int sweptLowBar  = na
+var int sweptHighBar = na
 if not na(lastSwingLow) and low < lastSwingLow and close > lastSwingLow and (bar_index - lastSwingLowBar) <= sweepLookback
-    sweptLowLevel := lastSwingLow
-    sweptLowBar   := bar_index
-
-// Bearish liquidity grab: price trades above a prior swing high then rejects
+    sweptLowBar := bar_index
 if not na(lastSwingHigh) and high > lastSwingHigh and close < lastSwingHigh and (bar_index - lastSwingHighBar) <= sweepLookback
-    sweptHighLevel := lastSwingHigh
-    sweptHighBar   := bar_index
+    sweptHighBar := bar_index
 
 // -----------------------------------------------------------------------------
-//  2) MARKET STRUCTURE SHIFT (MSS)  — close beyond a swing point
+//  2) MARKET STRUCTURE SHIFT (MSS)
 // -----------------------------------------------------------------------------
-var float brokenHigh = na    // the swing high level that MSS closed above
-var float brokenLow  = na
-
 bullMSS = not na(lastSwingHigh) and close > lastSwingHigh and close[1] <= lastSwingHigh
 bearMSS = not na(lastSwingLow)  and close < lastSwingLow  and close[1] >= lastSwingLow
 
-// Swing High / Low reference lines (rolling, follow the current active swing)
+// Swing High / Low reference lines (rolling)
 var line  shLine = na
 var label shLbl  = na
 var line  slLine = na
@@ -115,25 +171,23 @@ var label slLbl  = na
 if showSwings
     if not na(lastSwingHigh)
         if na(shLine)
-            shLine := line.new(lastSwingHighBar, lastSwingHigh, bar_index, lastSwingHigh, color = swingHiCol, style = line.style_dashed, width = 1)
-            shLbl  := label.new(bar_index, lastSwingHigh, "SH", style = label.style_label_left, color = color.new(swingHiCol, 100), textcolor = swingHiCol, size = size.small)
+            shLine := line.new(lastSwingHighBar, lastSwingHigh, bar_index, lastSwingHigh, color = swingHiCol, style = f_lineStyle(swingStyle), width = swingWidth)
+            shLbl  := label.new(bar_index, lastSwingHigh, "SH", style = label.style_label_left, color = color.new(swingHiCol, 100), textcolor = swingHiCol, size = f_size(swingTagSz))
         else
             line.set_xy1(shLine, lastSwingHighBar, lastSwingHigh)
             line.set_xy2(shLine, bar_index, lastSwingHigh)
             label.set_xy(shLbl, bar_index, lastSwingHigh)
     if not na(lastSwingLow)
         if na(slLine)
-            slLine := line.new(lastSwingLowBar, lastSwingLow, bar_index, lastSwingLow, color = swingLoCol, style = line.style_dashed, width = 1)
-            slLbl  := label.new(bar_index, lastSwingLow, "SL", style = label.style_label_left, color = color.new(swingLoCol, 100), textcolor = swingLoCol, size = size.small)
+            slLine := line.new(lastSwingLowBar, lastSwingLow, bar_index, lastSwingLow, color = swingLoCol, style = f_lineStyle(swingStyle), width = swingWidth)
+            slLbl  := label.new(bar_index, lastSwingLow, "SL", style = label.style_label_left, color = color.new(swingLoCol, 100), textcolor = swingLoCol, size = f_size(swingTagSz))
         else
             line.set_xy1(slLine, lastSwingLowBar, lastSwingLow)
             line.set_xy2(slLine, bar_index, lastSwingLow)
             label.set_xy(slLbl, bar_index, lastSwingLow)
 
 // -----------------------------------------------------------------------------
-//  3) FAIR VALUE GAP inside the displacement leg
-//     Bullish FVG: low[i] > high[i+2]   (gap up)
-//     Bearish FVG: high[i] < low[i+2]   (gap down)
+//  3) FAIR VALUE GAP inside displacement leg
 // -----------------------------------------------------------------------------
 f_hasBullFVGin(_len) =>
     bool found = false
@@ -154,13 +208,10 @@ f_hasBearFVGin(_len) =>
     [found, sz]
 
 // -----------------------------------------------------------------------------
-//  4) LOCATE THE ORDER BLOCK CANDLE + CONFIDENCE SCORE
-//     Bullish OB = last DOWN candle before the up displacement
-//     Bearish OB = last UP  candle before the down displacement
+//  4) ORDER BLOCK CANDLE + CONFIDENCE
 // -----------------------------------------------------------------------------
 atr = ta.atr(14)
 
-// Structures to persist active order blocks
 type OB
     box   b
     label lb
@@ -173,31 +224,20 @@ type OB
 var array<OB> obs = array.new<OB>()
 
 f_confidence(_bull, _fvgSize, _sweep, _dispBody) =>
-    // Weighted score 0..100
     float score = 0
-    // Displacement strength (body vs ATR) up to 35
     score += math.min(35.0, (_dispBody / (atr + 1e-9)) * 20.0)
-    // FVG size vs ATR up to 30
     score += math.min(30.0, (_fvgSize / (atr + 1e-9)) * 30.0)
-    // Liquidity sweep present: 25
     score += _sweep ? 25.0 : 0.0
-    // Volume confirmation up to 10
     volOk = volume > ta.sma(volume, 20)
     score += volOk ? 10.0 : 0.0
-    int c = int(math.round(math.min(100.0, score)))
-    c
+    int(math.round(math.min(100.0, score)))
 
-f_confColor(_c) =>
-    _c >= 75 ? color.new(#00e676, 0) : _c >= 50 ? color.new(#ffb300, 0) : color.new(#ff5252, 0)
+f_confText(_c) => _c >= 75 ? "HIGH" : _c >= 50 ? "MED" : "LOW"
 
-f_confText(_c) =>
-    _c >= 75 ? "HIGH" : _c >= 50 ? "MED" : "LOW"
-
-// Find OB origin candle index within leg lookback
 f_findBullOB(_len) =>
     int idx = na
     for i = 1 to int(math.min(_len, 60))
-        if close[i] < open[i]     // last bearish candle
+        if close[i] < open[i]
             idx := i
             break
     idx
@@ -205,7 +245,7 @@ f_findBullOB(_len) =>
 f_findBearOB(_len) =>
     int idx = na
     for i = 1 to int(math.min(_len, 60))
-        if close[i] > open[i]     // last bullish candle
+        if close[i] > open[i]
             idx := i
             break
     idx
@@ -221,13 +261,12 @@ if bullMSS
             dispBody = math.abs(close - open[obi])
             conf = f_confidence(true, fvgSz, sweepOk, dispBody)
             if not useConfFilter or conf >= minConf
-                float t = math.max(open[obi], high[obi])   // OB zone: candle range
+                float t = math.max(open[obi], high[obi])
                 float bo = math.min(low[obi], close[obi])
                 label lbl = na
                 string obTxt = showLabels ? (str.tostring(conf) + "%  " + f_confText(conf)) : ""
-                bx = box.new(bar_index - obi, t, bar_index + 20, bo, border_color = f_transpColor(bullCol, 30), bgcolor = f_transpColor(bullCol, obTransp), border_width = 1, text = obTxt, text_color = color.white, text_size = size.small, text_halign = text.align_right, text_valign = text.align_center)
-                o = OB.new(bx, lbl, t, bo, true, false, conf)
-                array.push(obs, o)
+                bx = box.new(bar_index - obi, t, bar_index + 20, bo, border_color = f_transpColor(bullCol, 30), bgcolor = f_transpColor(bullCol, obTransp), border_width = obBorderW, text = obTxt, text_color = color.white, text_size = f_size(obTextSz), text_halign = text.align_right, text_valign = text.align_center)
+                array.push(obs, OB.new(bx, lbl, t, bo, true, false, conf))
 
 // -------- Build bearish order block --------
 if bearMSS
@@ -244,21 +283,19 @@ if bearMSS
                 float bo = math.min(low[obi], close[obi])
                 label lbl = na
                 string obTxt = showLabels ? (str.tostring(conf) + "%  " + f_confText(conf)) : ""
-                bx = box.new(bar_index - obi, t, bar_index + 20, bo, border_color = f_transpColor(bearCol, 30), bgcolor = f_transpColor(bearCol, obTransp), border_width = 1, text = obTxt, text_color = color.white, text_size = size.small, text_halign = text.align_right, text_valign = text.align_center)
-                o = OB.new(bx, lbl, t, bo, false, false, conf)
-                array.push(obs, o)
+                bx = box.new(bar_index - obi, t, bar_index + 20, bo, border_color = f_transpColor(bearCol, 30), bgcolor = f_transpColor(bearCol, obTransp), border_width = obBorderW, text = obTxt, text_color = color.white, text_size = f_size(obTextSz), text_halign = text.align_right, text_valign = text.align_center)
+                array.push(obs, OB.new(bx, lbl, t, bo, false, false, conf))
 
 // -----------------------------------------------------------------------------
-//  MAINTAIN ORDER BLOCKS: extend, detect mitigation, prune
+//  MAINTAIN ORDER BLOCKS
 // -----------------------------------------------------------------------------
 if array.size(obs) > 0
     array<OB> keep = array.new<OB>()
     int bulls = 0
     int bears = 0
-    // iterate newest-first so per-side caps retain the most recent blocks
     for idx = array.size(obs) - 1 to 0
         OB o = array.get(obs, idx)
-        box.set_right(o.b, bar_index + 20)          // extend right edge to follow price
+        box.set_right(o.b, bar_index + 20)
         bool hit = o.bull ? (mitigation == "Close" ? close < o.bot : low < o.bot) : (mitigation == "Close" ? close > o.top : high > o.top)
         bool drop = false
         if hit and not o.mitig
@@ -266,7 +303,6 @@ if array.size(obs) > 0
             if showMitigated
                 box.set_bgcolor(o.b, f_transpColor(o.bull ? bullCol : bearCol, 94))
                 box.set_border_color(o.b, f_transpColor(color.gray, 60))
-                label.delete(o.lb)
             else
                 drop := true
         if not drop and not o.mitig
@@ -281,31 +317,24 @@ if array.size(obs) > 0
             label.delete(o.lb)
         else
             array.push(keep, o)
-    // rebuild obs in original (oldest-first) order
     array.clear(obs)
     if array.size(keep) > 0
         for k = array.size(keep) - 1 to 0
             array.push(obs, array.get(keep, k))
 
 // -----------------------------------------------------------------------------
-//  FVG BOXES (visual confirmation of imbalance)
+//  FVG BOXES
 // -----------------------------------------------------------------------------
 if showFVGbx
-    // bullish FVG on this bar
     if low > high[2]
-        box.new(bar_index - 2, low, bar_index + 5, high[2], border_color = color.new(bullCol, 60), bgcolor = color.new(bullCol, 90), border_width = 1, border_style = line.style_dotted)
+        box.new(bar_index - 2, low, bar_index + 5, high[2], border_color = fvgBullCol, bgcolor = color.new(fvgBullCol, 90), border_width = fvgBorderW, border_style = f_lineStyle(fvgStyle))
     if high < low[2]
-        box.new(bar_index - 2, low[2], bar_index + 5, high, border_color = color.new(bearCol, 60), bgcolor = color.new(bearCol, 90), border_width = 1, border_style = line.style_dotted)
+        box.new(bar_index - 2, low[2], bar_index + 5, high, border_color = fvgBearCol, bgcolor = color.new(fvgBearCol, 90), border_width = fvgBorderW, border_style = f_lineStyle(fvgStyle))
 
 // -----------------------------------------------------------------------------
-//  MULTI-TIMEFRAME ORDER BLOCKS  (projected from HTF)
+//  MULTI-TIMEFRAME ORDER BLOCKS
 // -----------------------------------------------------------------------------
-// Recreate the same bullish/bearish OB detection on the HTF and pull levels.
 f_htfBullOB() =>
-    e = ta.ema(close, emaLen)
-    phH = ta.pivothigh(high, pivotLen, pivotLen)
-    mss = not na(phH[0]) ? false : (close > ta.highest(high, pivotLen)[1])
-    // simplified HTF OB: last down candle when a bullish displacement (close > prior 3-bar high) occurs
     disp = close > ta.highest(high[1], 3)
     float t = na
     float b = na
@@ -339,18 +368,18 @@ if mtfOn
     if hBullDisp and not na(hBullT)
         if not na(htfBullBox)
             box.delete(htfBullBox)
-        htfBullBox := box.new(bar_index - 30, hBullT, bar_index + 20, hBullB, border_color = color.new(bullCol, 10), bgcolor = color.new(bullCol, 88), border_width = 2, border_style = line.style_dashed, text = mtfTF + " Bull OB", text_color = color.new(bullCol, 0), text_size = size.small, text_halign = text.align_left)
+        htfBullBox := box.new(bar_index - 30, hBullT, bar_index + 20, hBullB, border_color = color.new(bullCol, 10), bgcolor = color.new(bullCol, 88), border_width = htfBorderW, border_style = f_lineStyle(htfStyle), text = mtfTF + " Bull OB", text_color = color.new(bullCol, 0), text_size = f_size(obTextSz), text_halign = text.align_left)
     if hBearDisp and not na(hBearT)
         if not na(htfBearBox)
             box.delete(htfBearBox)
-        htfBearBox := box.new(bar_index - 30, hBearT, bar_index + 20, hBearB, border_color = color.new(bearCol, 10), bgcolor = color.new(bearCol, 88), border_width = 2, border_style = line.style_dashed, text = mtfTF + " Bear OB", text_color = color.new(bearCol, 0), text_size = size.small, text_halign = text.align_left)
+        htfBearBox := box.new(bar_index - 30, hBearT, bar_index + 20, hBearB, border_color = color.new(bearCol, 10), bgcolor = color.new(bearCol, 88), border_width = htfBorderW, border_style = f_lineStyle(htfStyle), text = mtfTF + " Bear OB", text_color = color.new(bearCol, 0), text_size = f_size(obTextSz), text_halign = text.align_left)
     if not na(htfBullBox)
         box.set_right(htfBullBox, bar_index + 20)
     if not na(htfBearBox)
         box.set_right(htfBearBox, bar_index + 20)
 
 // -----------------------------------------------------------------------------
-//  PREMIUM BACKGROUND TINT (follows active structure bias)
+//  PREMIUM BACKGROUND TINT
 // -----------------------------------------------------------------------------
 var int structBias = 0
 if bullMSS
@@ -358,7 +387,7 @@ if bullMSS
 if bearMSS
     structBias := -1
 
-bgcolor(bgOn ? (structBias == 1 ? color.new(bullCol, bgIntens) : structBias == -1 ? color.new(bearCol, bgIntens) : na) : na)
+bgcolor(bgOn ? (structBias == 1 ? color.new(bgBullCol, bgIntens) : structBias == -1 ? color.new(bgBearCol, bgIntens) : na) : na)
 
 // -----------------------------------------------------------------------------
 //  MTF TREND PANEL
@@ -377,25 +406,26 @@ if panelOn and barstate.islast
     if not na(panel)
         table.delete(panel)
     panel := table.new(pos, 2, 6, bgcolor = color.new(#0e1621, 12), border_color = color.new(color.gray, 60), border_width = 1, frame_color = color.new(color.gray, 40), frame_width = 1)
+    psz = f_size(panelTextSz)
 
-    table.cell(panel, 0, 0, "MTF TREND", text_color = color.white, bgcolor = color.new(#1c2733, 0), text_size = size.normal)
+    table.cell(panel, 0, 0, "MTF TREND", text_color = color.white, bgcolor = color.new(#1c2733, 0), text_size = psz)
     net = t1 + t2 + t3 + t4
     biasTxt = net >= 2 ? "STRONG BULL" : net <= -2 ? "STRONG BEAR" : net > 0 ? "BULL" : net < 0 ? "BEAR" : "MIXED"
     biasCol = net >= 2 ? color.new(#00e676,0) : net <= -2 ? color.new(#ff5252,0) : net > 0 ? color.new(#26a69a,0) : net < 0 ? color.new(#ef5350,0) : color.new(color.gray,0)
-    table.cell(panel, 1, 0, biasTxt, text_color = color.white, bgcolor = biasCol, text_size = size.normal)
+    table.cell(panel, 1, 0, biasTxt, text_color = color.white, bgcolor = biasCol, text_size = psz)
 
-    table.cell(panel, 0, 1, tf1, text_color = color.silver, text_size = size.small)
-    table.cell(panel, 1, 1, f_trendTxt(t1), text_color = color.white, bgcolor = f_trendCol(t1), text_size = size.small)
-    table.cell(panel, 0, 2, tf2, text_color = color.silver, text_size = size.small)
-    table.cell(panel, 1, 2, f_trendTxt(t2), text_color = color.white, bgcolor = f_trendCol(t2), text_size = size.small)
-    table.cell(panel, 0, 3, tf3, text_color = color.silver, text_size = size.small)
-    table.cell(panel, 1, 3, f_trendTxt(t3), text_color = color.white, bgcolor = f_trendCol(t3), text_size = size.small)
-    table.cell(panel, 0, 4, tf4, text_color = color.silver, text_size = size.small)
-    table.cell(panel, 1, 4, f_trendTxt(t4), text_color = color.white, bgcolor = f_trendCol(t4), text_size = size.small)
+    table.cell(panel, 0, 1, tf1, text_color = color.silver, text_size = psz)
+    table.cell(panel, 1, 1, f_trendTxt(t1), text_color = color.white, bgcolor = f_trendCol(t1), text_size = psz)
+    table.cell(panel, 0, 2, tf2, text_color = color.silver, text_size = psz)
+    table.cell(panel, 1, 2, f_trendTxt(t2), text_color = color.white, bgcolor = f_trendCol(t2), text_size = psz)
+    table.cell(panel, 0, 3, tf3, text_color = color.silver, text_size = psz)
+    table.cell(panel, 1, 3, f_trendTxt(t3), text_color = color.white, bgcolor = f_trendCol(t3), text_size = psz)
+    table.cell(panel, 0, 4, tf4, text_color = color.silver, text_size = psz)
+    table.cell(panel, 1, 4, f_trendTxt(t4), text_color = color.white, bgcolor = f_trendCol(t4), text_size = psz)
 
     strTxt = structBias == 1 ? "BULL MSS" : structBias == -1 ? "BEAR MSS" : "—"
-    table.cell(panel, 0, 5, "Structure", text_color = color.silver, text_size = size.small)
-    table.cell(panel, 1, 5, strTxt, text_color = color.white, bgcolor = structBias == 1 ? color.new(#26a69a,0) : structBias == -1 ? color.new(#ef5350,0) : color.new(color.gray,0), text_size = size.small)
+    table.cell(panel, 0, 5, "Structure", text_color = color.silver, text_size = psz)
+    table.cell(panel, 1, 5, strTxt, text_color = color.white, bgcolor = structBias == 1 ? color.new(#26a69a,0) : structBias == -1 ? color.new(#ef5350,0) : color.new(color.gray,0), text_size = psz)
 
 // -----------------------------------------------------------------------------
 //  ALERTS
